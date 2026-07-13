@@ -5,9 +5,10 @@ import { projectApi } from '../api';
 interface BranchSelectorProps {
   projectPath: string;
   onBranchSelect: (branch: string) => void;
+  disabled?: boolean;
 }
 
-export default function BranchSelector({ projectPath, onBranchSelect }: BranchSelectorProps) {
+export default function BranchSelector({ projectPath, onBranchSelect, disabled = false }: BranchSelectorProps) {
   const [branches, setBranches] = useState<string[]>([]);
   const [current, setCurrent] = useState('');
   const [loading, setLoading] = useState(false);
@@ -65,6 +66,7 @@ export default function BranchSelector({ projectPath, onBranchSelect }: BranchSe
         style={{ width: '100%' }}
         value={selected}
         onChange={handleChange}
+        disabled={disabled}
         options={branches.map((b) => ({
           value: b,
           label: (

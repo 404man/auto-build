@@ -16,9 +16,10 @@ interface DirEntry {
 
 interface DirectoryPickerProps {
   onProjectSelect: (projects: Array<{ name: string; path: string }>) => void;
+  disabled?: boolean;
 }
 
-export default function DirectoryPicker({ onProjectSelect }: DirectoryPickerProps) {
+export default function DirectoryPicker({ onProjectSelect, disabled = false }: DirectoryPickerProps) {
   const [parentPath, setParentPath] = useState('');
   const [scanning, setScanning] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
@@ -45,6 +46,7 @@ export default function DirectoryPicker({ onProjectSelect }: DirectoryPickerProp
   }, []);
 
   const handleBrowse = () => {
+    if (disabled) return;
     const initial = parentPath || '/';
     setBrowseOpen(true);
     loadDirs(initial);
@@ -91,8 +93,9 @@ export default function DirectoryPicker({ onProjectSelect }: DirectoryPickerProp
           onChange={(e) => setParentPath(e.target.value)}
           prefix={<FolderOutlined />}
           onPressEnter={handleScan}
+          disabled={disabled}
         />
-        <Button icon={<FolderOpenOutlined />} onClick={handleBrowse}>
+        <Button icon={<FolderOpenOutlined />} onClick={handleBrowse} disabled={disabled}>
           浏览
         </Button>
         <Button
@@ -100,6 +103,7 @@ export default function DirectoryPicker({ onProjectSelect }: DirectoryPickerProp
           icon={<SearchOutlined />}
           loading={scanning}
           onClick={handleScan}
+          disabled={disabled}
         >
           扫描
         </Button>
@@ -112,6 +116,7 @@ export default function DirectoryPicker({ onProjectSelect }: DirectoryPickerProp
           style={{ width: '100%' }}
           value={selectedPaths}
           onChange={handleSelect}
+          disabled={disabled}
           options={projects.map((p) => ({
             value: p.path,
             label: (

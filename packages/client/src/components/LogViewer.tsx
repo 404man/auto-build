@@ -20,7 +20,15 @@ export default function LogViewer({ logs, onClear, currentProjectName }: LogView
   }, [logs]);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        position: 'relative',
+      }}
+    >
       {currentProjectName && (
         <div style={{ marginBottom: 8, color: '#1677ff', fontWeight: 500 }}>
           当前构建：{currentProjectName}
@@ -32,7 +40,6 @@ export default function LogViewer({ logs, onClear, currentProjectName }: LogView
           icon={<DeleteOutlined />}
           onClick={onClear}
           disabled={logs.length === 0}
-          ghost
         >
           清空日志
         </Button>
@@ -40,10 +47,13 @@ export default function LogViewer({ logs, onClear, currentProjectName }: LogView
       <div
         ref={containerRef}
         style={{
-          background: '#1e1e1e',
+          flex: 1,
+          minHeight: 0,
+          background: '#fafafa',
+          border: '1px solid #e8e8e8',
           borderRadius: 8,
           padding: '16px 12px',
-          height: 400,
+          marginTop: 28,
           overflowY: 'auto',
           fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
           fontSize: 13,
@@ -51,19 +61,19 @@ export default function LogViewer({ logs, onClear, currentProjectName }: LogView
         }}
       >
         {logs.length === 0 ? (
-          <Text style={{ color: '#666' }}>等待构建开始...</Text>
+          <Text style={{ color: '#bfbfbf' }}>等待构建开始...</Text>
         ) : (
           logs.map((entry, idx) => (
             <div
               key={idx}
               style={{
-                color: entry.type === 'stderr' ? '#ff6b6b' : '#d4d4d4',
+                color: entry.type === 'stderr' ? '#cf1322' : '#262626',
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-all',
               }}
             >
               {entry.projectName && (
-                <span style={{ color: '#69c0ff' }}>[{entry.projectName}] </span>
+                <span style={{ color: '#1677ff' }}>[{entry.projectName}] </span>
               )}
               {entry.data}
             </div>

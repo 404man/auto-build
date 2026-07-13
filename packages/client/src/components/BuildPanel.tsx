@@ -5,8 +5,16 @@ import { directoryApi } from '../api';
 
 const { Text } = Typography;
 
-interface BuildPanelProps {
+export interface PreviewProject {
+  name: string;
+  path: string;
   branch: string;
+}
+
+type BuildListItem = ProjectBuildState & { branch?: string };
+
+interface BuildPanelProps {
+  previewProjects: PreviewProject[];
   isBatch: boolean;
   batchProjects: ProjectBuildState[];
   currentProjectIndex: number;
@@ -28,7 +36,7 @@ const batchStatusConfig: Record<BatchProjectStatus, { color: string; label: stri
 };
 
 export default function BuildPanel({
-  branch,
+  previewProjects,
   isBatch,
   batchProjects,
   currentProjectIndex,
@@ -40,33 +48,57 @@ export default function BuildPanel({
   onDownloadProject,
   onDownloadAll,
 }: BuildPanelProps) {
+  const isPreviewMode = batchProjects.length === 0;
+  const listSource: BuildListItem[] = isPreviewMode
+    ? previewProjects.map((p) => ({
+        name: p.name,
+        path: p.path,
+        status: 'pending',
+        buildId: '',
+        branch: p.branch,
+      }))
+    : batchProjects;
+
   const isRunning = batchProjects.some((p) => p.status === 'building');
   const completedCount = batchProjects.filter((p) => p.status === 'completed').length;
   const hasCompletedProjects = completedCount > 0;
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <Text type="secondary">分支：</Text>
-        <Text strong>{branch}</Text>
-        {isBatch && totalProjects > 0 && (
-          <>
-            <Text type="secondary" style={{ marginLeft: 16 }}>
-              构建进度：
-            </Text>
-            <Text strong>
-              {currentProjectIndex + 1}/{totalProjects}
-            </Text>
-          </>
-        )}
-      </div>
+      {batchProjects.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary">构建进度：</Text>
+          <Text strong>
+            {currentProjectIndex + 1}/{totalProjects}
+          </Text>
+        </div>
+      )}
 
-      {/* Project list */}
-      {isBatch && batchProjects.length > 0 && (
+      {isBatch && listSource.length > 0 && (
         <List
           size="small"
-          dataSource={batchProjects}
+          dataSource={listSource}
           renderItem={(item) => {
+            if (isPreviewMode) {
+              return (
+                <List.Item>
+                  <List.Item.Meta
+                    title={
+                      <Space>
+                        <span>{item.name}</span>
+                        <Tag>{item.branch}</Tag>
+                      </Space>
+                    }
+                    description={
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {item.path}
+                      </Text>
+                    }
+                  />
+                </List.Item>
+              );
+            }
+
             const cfg = batchStatusConfig[item.status];
             return (
               <List.Item

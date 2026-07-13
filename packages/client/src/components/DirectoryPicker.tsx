@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Input, Button, Select, Space, Modal, List, Tag, message } from 'antd';
 import { FolderOutlined, SearchOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { directoryApi } from '../api';
@@ -17,13 +17,20 @@ interface DirEntry {
 interface DirectoryPickerProps {
   onProjectSelect: (projects: Array<{ name: string; path: string }>) => void;
   disabled?: boolean;
+  /** Bump this value (e.g. on "更换项目") to clear the current selection without re-scanning. */
+  resetToken?: number;
 }
 
-export default function DirectoryPicker({ onProjectSelect, disabled = false }: DirectoryPickerProps) {
+export default function DirectoryPicker({ onProjectSelect, disabled = false, resetToken }: DirectoryPickerProps) {
   const [parentPath, setParentPath] = useState('');
   const [scanning, setScanning] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (resetToken === undefined) return;
+    setSelectedPaths([]);
+  }, [resetToken]);
 
   const [browseOpen, setBrowseOpen] = useState(false);
   const [browsePath, setBrowsePath] = useState('');

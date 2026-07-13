@@ -19,6 +19,7 @@ interface SelectedProject {
 function App() {
   const [projects, setProjects] = useState<SelectedProject[]>([]);
   const [projectBranches, setProjectBranches] = useState<Record<string, string>>({});
+  const [pickerResetToken, setPickerResetToken] = useState(0);
   const {
     clearLogs,
     cancelBuild,
@@ -47,6 +48,7 @@ function App() {
   const handleChangeProject = useCallback(() => {
     setProjects([]);
     setProjectBranches({});
+    setPickerResetToken((t) => t + 1);
     resetBuildState();
   }, [resetBuildState]);
 
@@ -110,7 +112,11 @@ function App() {
           <aside className="ws-sidebar">
             <div>
               <p className="ws-sidebar-section-title">1. 选择项目目录</p>
-              <DirectoryPicker onProjectSelect={handleProjectSelect} disabled={configLocked} />
+              <DirectoryPicker
+                onProjectSelect={handleProjectSelect}
+                disabled={configLocked}
+                resetToken={pickerResetToken}
+              />
             </div>
 
             {projects.length > 0 && (

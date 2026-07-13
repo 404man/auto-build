@@ -39,6 +39,7 @@ interface UseBuildReturn {
   startBatchBuild: (projects: Array<{ name: string; path: string; branch?: string }>) => Promise<void>;
   downloadProject: (buildId: string) => void;
   downloadAll: () => void;
+  resetBuildState: () => void;
 }
 
 export function useBuild(): UseBuildReturn {
@@ -223,10 +224,34 @@ export function useBuild(): UseBuildReturn {
   const cancelBuild = useCallback(() => {
     if (buildId) {
       buildApi.cancel(buildId).catch(() => undefined);
+    } else {
+      // Best-effort: cancel the currently building project in a batch, if any.
+      const buildingProject = batchProjects.find((p) => p.status === 'building');
+      if (buildingProject?.buildId) {
+        buildApi.cancel(buildingProject.buildId).catch(() => undefined);
+      }
     }
     setStatus('cancelled');
+    setBatchProjects((prev) =>
+      prev.map((p) => (p.status === 'pending' || p.status === 'building' ? { ...p, status: 'skipped' } : p)),
+    );
+    setBatchComplete(true);
     cleanup();
-  }, [buildId, cleanup]);
+  }, [buildId, batchProjects, cleanup]);
+
+  const resetBuildState = useCallback(() => {
+    cleanup();
+    setStatus('idle');
+    setLogs([]);
+    setBuildId(null);
+    setError('');
+    setPackageManager('');
+    setIsBatch(false);
+    setBatchProjects([]);
+    setCurrentProjectIndex(0);
+    setBatchId(null);
+    setBatchComplete(false);
+  }, [cleanup]);
 
   const downloadBuild = useCallback(() => {
     if (buildId) {
@@ -271,5 +296,6 @@ export function useBuild(): UseBuildReturn {
     startBatchBuild,
     downloadProject,
     downloadAll,
+    resetBuildState,
   };
 }

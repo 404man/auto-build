@@ -19,8 +19,21 @@ interface SelectedProject {
 function App() {
   const [projects, setProjects] = useState<SelectedProject[]>([]);
   const [projectBranches, setProjectBranches] = useState<Record<string, string>>({});
-  const build = useBuild();
-  const { clearLogs, cancelBuild, downloadProject, downloadAll, startBatchBuild, logs, batchProjects, currentProjectIndex, totalProjects, batchComplete, error, isBatch } = build;
+  const {
+    clearLogs,
+    cancelBuild,
+    downloadProject,
+    downloadAll,
+    startBatchBuild,
+    resetBuildState,
+    logs,
+    batchProjects,
+    currentProjectIndex,
+    totalProjects,
+    batchComplete,
+    error,
+    isBatch,
+  } = useBuild();
 
   const handleProjectSelect = useCallback((selected: SelectedProject[]) => {
     setProjects(selected);
@@ -34,8 +47,8 @@ function App() {
   const handleChangeProject = useCallback(() => {
     setProjects([]);
     setProjectBranches({});
-    clearLogs();
-  }, [clearLogs]);
+    resetBuildState();
+  }, [resetBuildState]);
 
   const allBranchesSelected = projects.length > 0 && projects.every((p) => !!projectBranches[p.path]);
 
@@ -88,7 +101,7 @@ function App() {
             <h1>auto-dist</h1>
             <span>前端产物本地构建平台</span>
           </div>
-          <Tag color={configLocked ? 'processing' : batchComplete ? 'success' : 'default'}>
+          <Tag color={configLocked ? 'processing' : batchComplete && batchProjects.length > 0 ? 'success' : 'default'}>
             {headerStatus}
           </Tag>
         </header>

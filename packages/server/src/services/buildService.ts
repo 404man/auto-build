@@ -364,7 +364,7 @@ export async function runBuild(
 
     // Step 3: 检测 dist 目录
     task.status = 'packaging';
-    io.to(socketId).emit('build:status', { buildId, status: 'packaging', projectName });
+    io.to(socketId).emit('build:status', { buildId, status: 'packaging', packageManager, projectName });
 
     const distPath = join(buildDir, 'dist');
     try {
@@ -528,9 +528,10 @@ export async function runBatchBuild(
   installCommand?: string,
   buildCommand?: string,
   externalBuildIds?: string[],
+  externalBatchId?: string,
 ): Promise<{ batchId: string; buildIds: string[] }> {
   const io = getIo();
-  const batchId = randomUUID();
+  const batchId = externalBatchId || randomUUID();
   const buildIds: string[] = [];
   const results: BatchBuildTask['results'] = projects.map((p) => ({
     projectName: p.name,

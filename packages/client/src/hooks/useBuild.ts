@@ -107,9 +107,10 @@ export function useBuild(): UseBuildReturn {
         }
       });
 
-      socket.on('build:status', (data: { buildId: string; status: string }) => {
+      socket.on('build:status', (data: { buildId: string; status: string; packageManager?: string }) => {
         if (data.buildId === id) {
           setStatus(data.status as BuildStatus);
+          if (data.packageManager) setPackageManager(data.packageManager);
         }
       });
 
@@ -165,7 +166,15 @@ export function useBuild(): UseBuildReturn {
       const batchProjectsWithDocker = projects.map((p) => ({ ...p, dockerOptions: dockerOptions ?? undefined }));
       const res = await buildApi.startBatch(batchProjectsWithDocker, socket.id!, commands?.installCommand, commands?.buildCommand);
       const bId = res.data.data.batchId;
+      const respBuildIds: string[] = res.data.data.buildIds ?? [];
       setBatchId(bId);
+
+      // 用响应中的 buildIds 初始化 batchProjects，避免 socket 事件到达前的空窗口
+      if (respBuildIds.length > 0) {
+        setBatchProjects((prev) =>
+          prev.map((p, idx) => (respBuildIds[idx] ? { ...p, buildId: respBuildIds[idx] } : p)),
+        );
+      }
 
       // Listen for batch progress events
       socket.on('batch:progress', (data: {
@@ -193,7 +202,7 @@ export function useBuild(): UseBuildReturn {
       });
 
       // Listen for build status changes
-      socket.on('build:status', (data: { buildId: string; status: string; projectName?: string }) => {
+      socket.on('build:status', (data: { buildId: string; status: string; projectName?: string; packageManager?: string }) => {
         if (data.projectName) {
           setBatchProjects((prev) =>
             prev.map((p) =>

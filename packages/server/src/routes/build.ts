@@ -197,7 +197,7 @@ buildRouter.post('/batch', async (ctx: any) => {
     ctx.body = { success: true, data: { batchId, buildIds } };
 
     // fire-and-forget：批量构建在后台异步执行
-    runBatchBuild(normalizedProjects, socketId, installCommand, buildCommand, buildIds).catch((err) => {
+    runBatchBuild(normalizedProjects, socketId, installCommand, buildCommand, buildIds, batchId).catch((err) => {
       console.error(`[Build] batchId=${batchId} unhandled error:`, err);
     });
   } catch (err) {

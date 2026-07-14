@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import { resolve, join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 
 const GIT_TIMEOUT = 30_000; // 30 seconds
@@ -179,5 +178,5 @@ export async function pruneWorktrees(projectPath: string): Promise<void> {
  * Generate a temporary worktree path for a given build ID.
  */
 export function generateWorktreePath(buildId: string): string {
-  return join(tmpdir(), 'auto-build-worktrees', buildId);
+  return join('/tmp', 'auto-build-worktrees', buildId);
 }

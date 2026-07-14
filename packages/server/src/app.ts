@@ -7,6 +7,9 @@ import { setIo } from './services/io.js';
 import directoryRouter from './routes/directory.js';
 import { projectRouter } from './routes/project.js';
 import { buildRouter } from './routes/build.js';
+import { dockerRouter } from './routes/docker.js';
+import { settingsRouter } from './routes/settings.js';
+import { initConfigService } from './services/configService.js';
 
 const app = new Koa();
 const server = createServer(app.callback());
@@ -81,6 +84,14 @@ app.use(projectRouter.allowedMethods());
 app.use(buildRouter.prefix('/api/build').routes());
 app.use(buildRouter.allowedMethods());
 
+// Docker routes
+app.use(dockerRouter.routes());
+app.use(dockerRouter.allowedMethods());
+
+// Settings routes
+app.use(settingsRouter.routes());
+app.use(settingsRouter.allowedMethods());
+
 // Socket.IO 连接事件
 io.on('connection', (socket) => {
   console.log(`[Socket.IO] Client connected: ${socket.id}`);
@@ -98,7 +109,10 @@ io.on('connection', (socket) => {
 
 // 启动服务器
 const PORT = 3001;
-server.listen(PORT, () => {
-  console.log(`[Server] Running at http://localhost:${PORT}`);
-  console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
-});
+(async () => {
+  await initConfigService();
+  server.listen(PORT, () => {
+    console.log(`[Server] Running at http://localhost:${PORT}`);
+    console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
+  });
+})();

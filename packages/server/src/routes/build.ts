@@ -20,7 +20,7 @@ const buildRouter = new Router();
 buildRouter.post('/start', async (ctx: any) => {
   try {
     const body = ctx.request.body;
-    const { projectPath, socketId, branch } = body ?? {};
+    const { projectPath, socketId, branch, projectName, dockerOptions } = body ?? {};
 
     if (!projectPath || !socketId) {
       ctx.status = 400;
@@ -28,7 +28,7 @@ buildRouter.post('/start', async (ctx: any) => {
       return;
     }
 
-    const { buildId, packageManager } = await runBuild(projectPath, socketId, branch);
+    const { buildId, packageManager } = await runBuild(projectPath, socketId, branch, projectName, dockerOptions);
     ctx.body = { success: true, data: { buildId, packageManager } };
   } catch (err) {
     ctx.status = 500;

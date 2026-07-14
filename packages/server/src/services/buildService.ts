@@ -13,12 +13,33 @@ import { getIo } from './io.js';
 export interface BuildTask {
   id: string;
   projectPath: string;
-  status: 'installing' | 'building' | 'packaging' | 'completed' | 'failed' | 'cancelled';
+  status: 'installing' | 'building' | 'docker-building' | 'packaging' | 'completed' | 'failed' | 'cancelled';
   packageManager: 'npm' | 'pnpm' | 'yarn';
   process?: ChildProcess;
   zipPath?: string;
   error?: string;
   createdAt: number;
+  worktreePath?: string;
+  worktreeCleaned?: boolean;
+  branch?: string;
+  buildMode?: 'static' | 'docker';
+  dockerImage?: string;
+  dockerTag?: string;
+}
+
+export interface DockerBuildOptions {
+  buildMode: 'docker';
+  dockerfileTemplate?: string;
+  customDockerfile?: string;
+  nginxConfig?: string;
+  customNginxConfig?: string;
+  registry?: {
+    url: string;
+    imageName: string;
+    tag?: string;
+    username?: string;
+    password?: string;
+  };
 }
 
 export type PackageManager = 'npm' | 'pnpm' | 'yarn';
@@ -175,39 +196,43 @@ function scheduleTaskCleanup(buildId: string): void {
  * 4. 检测 dist 目录
  * 5. archiver 流式打包 dist 为 zip
  */
-export async function runBuild(projectPath: string, socketId: string, branch?: string, projectName?: string): Promise<{ buildId: string; packageManager: PackageManager }> {
+export async function runBuild(
+  projectPath: string,
+  socketId: string,
+  branch?: string,
+  projectName?: string,
+  dockerOptions?: DockerBuildOptions
+): Promise<{ buildId: string; packageManager: PackageManager }> {
   const io = getIo();
 
   // 校验路径
   validateProjectPath(projectPath);
 
-  // 并发控制：检查同一 projectPath 是否已有运行中的任务
+  // 并发控制：检查同一 projectPath + branch 是否已有运行中的任务
   for (const task of buildTasks.values()) {
     if (
       task.projectPath === projectPath &&
+      task.branch === branch &&
       task.status !== 'completed' &&
       task.status !== 'failed' &&
       task.status !== 'cancelled'
     ) {
-      throw new Error(`该路径已有运行中的构建任务: ${task.id}`);
+      throw new Error(`该路径+分支已有运行中的构建任务: ${task.id}`);
     }
   }
-
-  // 检测包管理器
-  const packageManager = await detectPackageManager(projectPath);
 
   const buildId = randomUUID();
   const task: BuildTask = {
     id: buildId,
     projectPath,
-    packageManager,
+    packageManager: 'pnpm', // 占位，try 块内会用 buildDir 重新检测
     status: 'installing',
     createdAt: Date.now(),
   };
   buildTasks.set(buildId, task);
 
-  // 通知客户端构建已开始（包含包管理器信息）
-  io.to(socketId).emit('build:status', { buildId, status: 'installing', packageManager, projectName });
+  // 通知客户端构建已开始
+  io.to(socketId).emit('build:status', { buildId, status: 'installing', packageManager: task.packageManager, projectName });
 
   // 设置超时控制
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -232,6 +257,14 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
       task.error = '构建超时（10分钟）';
       clearTimeout_();
       io.to(socketId).emit('build:error', { buildId, error: task.error, projectName });
+      // 清理 worktree
+      if (task.worktreePath && !task.worktreeCleaned) {
+        import('./gitService.js').then(({ removeWorktree }) => {
+          removeWorktree(task.projectPath, task.worktreePath!).then(() => {
+            task.worktreeCleaned = true;
+          }).catch(() => {});
+        });
+      }
       scheduleTaskCleanup(buildId);
     }
   }, BUILD_TIMEOUT_MS);
@@ -241,16 +274,27 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
     io.to(socketId).emit('build:log', { buildId, type, data, projectName });
   };
 
+  let worktreePath: string | undefined;
+
   try {
-    // Step 0: 如果指定了分支，先执行 git checkout 和 git pull
+    // Step 0: 如果指定了分支，创建独立的 git worktree
+    let buildDir = projectPath;
     if (branch) {
-      const { execGit } = await import('./gitService.js');
-      onOutput('stdout', `[auto-dist] 切换到分支: ${branch}\n`);
-      await execGit(projectPath, ['checkout', branch]);
-      onOutput('stdout', `[auto-dist] 拉取最新代码...\n`);
-      await execGit(projectPath, ['pull']);
-      onOutput('stdout', `[auto-dist] 分支准备完成\n`);
+      const { fetchBranch, addWorktree, generateWorktreePath } = await import('./gitService.js');
+      worktreePath = generateWorktreePath(buildId);
+      task.branch = branch;
+      onOutput('stdout', `[auto-dist] 拉取最新代码: ${branch}\n`);
+      await fetchBranch(projectPath, branch);
+      onOutput('stdout', `[auto-dist] 创建 worktree...\n`);
+      await addWorktree(projectPath, branch, worktreePath);
+      task.worktreePath = worktreePath;
+      buildDir = worktreePath;
+      onOutput('stdout', `[auto-dist] worktree 准备完成\n`);
     }
+
+    // 在 buildDir 上检测包管理器（worktree 可能有不同的 lock 文件）
+    const packageManager = await detectPackageManager(buildDir);
+    task.packageManager = packageManager;
 
     // Step 1: {pm} install
     const installCmd = getInstallCommand(packageManager);
@@ -259,7 +303,7 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
     onOutput('stdout', `[auto-dist] 检测到包管理器: ${packageManager}\n`);
     onOutput('stdout', `[auto-dist] 开始执行 ${installCmd.command} ${installCmd.args.join(' ')}...\n`);
 
-    const installSpawn = spawnCommand(installCmd.command, installCmd.args, projectPath, onOutput);
+    const installSpawn = spawnCommand(installCmd.command, installCmd.args, buildDir, onOutput);
     task.process = installSpawn.child;
     const installResult = await installSpawn.exitPromise;
 
@@ -280,7 +324,7 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
     io.to(socketId).emit('build:status', { buildId, status: 'building', packageManager, projectName });
     onOutput('stdout', `[auto-dist] 开始执行 ${buildCmd.command} ${buildCmd.args.join(' ')}...\n`);
 
-    const buildSpawn = spawnCommand(buildCmd.command, buildCmd.args, projectPath, onOutput);
+    const buildSpawn = spawnCommand(buildCmd.command, buildCmd.args, buildDir, onOutput);
     task.process = buildSpawn.child;
     const buildResult = await buildSpawn.exitPromise;
 
@@ -299,7 +343,7 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
     task.status = 'packaging';
     io.to(socketId).emit('build:status', { buildId, status: 'packaging', projectName });
 
-    const distPath = join(projectPath, 'dist');
+    const distPath = join(buildDir, 'dist');
     try {
       const stats = await stat(distPath);
       if (!stats.isDirectory()) {
@@ -335,6 +379,73 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
 
     onOutput('stdout', `[auto-dist] 打包完成: ${zipPath}\n`);
 
+    // Step 5: Docker 构建（如果指定了 docker 模式）
+    if (dockerOptions?.buildMode === 'docker') {
+      const { writeDockerfile, writeNginxConfig, dockerBuild } = await import('./dockerService.js');
+
+      task.buildMode = 'docker';
+      task.status = 'docker-building';
+
+      // 检测项目目录是否自带 Dockerfile（仅在用户未指定 customDockerfile 时）
+      const projectDockerfilePath = join(buildDir, 'Dockerfile');
+      let useProjectDockerfile = false;
+      if (!dockerOptions.customDockerfile) {
+        try {
+          await access(projectDockerfilePath);
+          useProjectDockerfile = true;
+          onOutput('stdout', `[auto-dist] 检测到项目目录已有 Dockerfile，优先使用\n`);
+        } catch {
+          // 项目无 Dockerfile，使用模板
+        }
+      }
+
+      if (!useProjectDockerfile) {
+        // 现有逻辑：从模板写入 Dockerfile
+        const templateName = dockerOptions.dockerfileTemplate || 'node';
+        onOutput('stdout', `[auto-dist] 写入 Dockerfile (模板: ${templateName})...\n`);
+        await writeDockerfile(buildDir, templateName, dockerOptions.customDockerfile);
+      }
+
+      // 检测项目目录是否自带 nginx.conf（仅在用户未指定 customNginxConfig 时）
+      const projectNginxPath = join(buildDir, 'nginx.conf');
+      let useProjectNginx = false;
+      if (!dockerOptions.customNginxConfig) {
+        try {
+          await access(projectNginxPath);
+          useProjectNginx = true;
+          onOutput('stdout', `[auto-dist] 检测到项目目录已有 nginx.conf，优先使用\n`);
+        } catch {
+          // 项目无 nginx.conf
+        }
+      }
+
+      // 写入 Nginx 配置（如果是 react-nginx 模板或用户指定了，且项目没有自带）
+      if (!useProjectNginx && (dockerOptions.nginxConfig || dockerOptions.dockerfileTemplate === 'react-nginx')) {
+        const nginxName = dockerOptions.nginxConfig || 'standard-spa';
+        onOutput('stdout', `[auto-dist] 写入 Nginx 配置 (模板: ${nginxName})...\n`);
+        await writeNginxConfig(buildDir, nginxName, dockerOptions.customNginxConfig);
+      }
+
+      // Docker Build
+      const imageName = dockerOptions.registry?.imageName || 'auto-build-app';
+      const imageTag = dockerOptions.registry?.tag || 'latest';
+      task.dockerImage = imageName;
+      task.dockerTag = imageTag;
+
+      onOutput('stdout', `[auto-dist] 开始 Docker 构建: ${imageName}:${imageTag}\n`);
+      const dockerResult = await dockerBuild(buildDir, imageName, imageTag, undefined, onOutput);
+
+      if (dockerResult.code !== 0) {
+        task.status = 'failed';
+        task.error = `Docker 构建失败，退出码: ${dockerResult.code}`;
+        clearTimeout_();
+        io.to(socketId).emit('build:error', { buildId, error: task.error, projectName });
+        scheduleTaskCleanup(buildId);
+        return { buildId, packageManager };
+      }
+      onOutput('stdout', `[auto-dist] Docker 构建完成: ${imageName}:${imageTag}\n`);
+    }
+
     // 构建完成
     task.status = 'completed';
     clearTimeout_();
@@ -348,7 +459,7 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
     if (task.status === 'cancelled') {
       clearTimeout_();
       scheduleTaskCleanup(buildId);
-      return { buildId, packageManager };
+      return { buildId, packageManager: task.packageManager };
     }
 
     task.status = 'failed';
@@ -356,7 +467,18 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
     clearTimeout_();
     io.to(socketId).emit('build:error', { buildId, error: task.error, projectName });
     scheduleTaskCleanup(buildId);
-    return { buildId, packageManager };
+    return { buildId, packageManager: task.packageManager };
+  } finally {
+    // 清理 worktree
+    if (worktreePath && !task.worktreeCleaned) {
+      try {
+        const { removeWorktree } = await import('./gitService.js');
+        await removeWorktree(projectPath, worktreePath);
+        task.worktreeCleaned = true;
+      } catch {
+        // 清理失败不影响构建结果
+      }
+    }
   }
 }
 
@@ -368,7 +490,7 @@ export async function runBuild(projectPath: string, socketId: string, branch?: s
  * - 如果某项目没有指定分支，跳过并在日志中提示
  */
 export async function runBatchBuild(
-  projects: Array<{ name: string; path: string; branch?: string }>,
+  projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>,
   socketId: string,
 ): Promise<{ batchId: string; buildIds: string[] }> {
   const io = getIo();
@@ -413,7 +535,13 @@ export async function runBatchBuild(
       if (projectBranch) {
         try {
           const { execGit } = await import('./gitService.js');
-          await execGit(project.path, ['rev-parse', '--verify', projectBranch]);
+          try {
+            await execGit(project.path, ['rev-parse', '--verify', projectBranch]);
+          } catch {
+            // 本地不存在，fetch 后检查远程
+            await execGit(project.path, ['fetch', 'origin', projectBranch]);
+            await execGit(project.path, ['rev-parse', '--verify', `origin/${projectBranch}`]);
+          }
         } catch {
           // 分支不存在，跳过该项目
           results[i].status = 'skipped';
@@ -439,7 +567,7 @@ export async function runBatchBuild(
         }
       }
 
-      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name);
+      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions);
       results[i].buildId = buildId;
       results[i].status = 'completed';
       buildIds.push(buildId);
@@ -550,6 +678,15 @@ export function cancelBuild(buildId: string): boolean {
   // 清理临时 zip 文件
   if (task.zipPath) {
     unlink(task.zipPath).catch(() => {});
+  }
+
+  // 清理 worktree
+  if (task.worktreePath && !task.worktreeCleaned) {
+    import('./gitService.js').then(({ removeWorktree }) => {
+      removeWorktree(task.projectPath, task.worktreePath!).then(() => {
+        task.worktreeCleaned = true;
+      }).catch(() => {});
+    });
   }
 
   scheduleTaskCleanup(buildId);

@@ -51,11 +51,11 @@ export async function scanDirectory(parentPath: string): Promise<ScanResult> {
 
     const childPath = path.join(resolvedPath, entry.name);
 
-    // 检查子目录下是否有 .git 目录
+    // 检查子目录下是否有 .git（目录或文件，worktree 中 .git 是文件）
     let isGitRepo = false;
     try {
       const gitStat = await fs.stat(path.join(childPath, '.git'));
-      isGitRepo = gitStat.isDirectory();
+      isGitRepo = gitStat.isDirectory() || gitStat.isFile();
     } catch {
       // .git 不存在，不是 git 仓库
     }

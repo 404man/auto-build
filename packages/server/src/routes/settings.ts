@@ -1,0 +1,211 @@
+import Router from '@koa/router';
+import {
+  listTemplates,
+  getTemplate,
+  addTemplate,
+  updateTemplate,
+  deleteTemplate,
+  getRegistryConfig,
+  saveRegistryConfig,
+  type TemplateType,
+} from '../services/configService.js';
+
+export const settingsRouter = new Router();
+
+// ========== GET /api/settings — 全部配置概览 ==========
+settingsRouter.get('/api/settings', async (ctx: any) => {
+  try {
+    const dockerfileTemplates = listTemplates('dockerfile');
+    const nginxConfigs = listTemplates('nginx');
+    const registry = getRegistryConfig();
+    ctx.body = {
+      success: true,
+      data: {
+        dockerfileTemplates,
+        nginxConfigs,
+        registry: { ...registry, secret: '***' },
+      },
+    };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+// ========== Dockerfile 模板 CRUD ==========
+
+settingsRouter.get('/api/settings/dockerfile-templates', async (ctx: any) => {
+  try {
+    const templates = listTemplates('dockerfile');
+    ctx.body = { success: true, data: templates };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.get('/api/settings/dockerfile-templates/:key', async (ctx: any) => {
+  try {
+    const template = getTemplate('dockerfile', ctx.params.key);
+    if (!template) {
+      ctx.status = 404;
+      ctx.body = { success: false, error: 'Template not found' };
+      return;
+    }
+    ctx.body = { success: true, data: template };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.post('/api/settings/dockerfile-templates', async (ctx: any) => {
+  try {
+    const { key, name, description, content } = ctx.request.body;
+    const template = addTemplate('dockerfile', { key, name, description, content });
+    ctx.status = 201;
+    ctx.body = { success: true, data: template };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.put('/api/settings/dockerfile-templates/:key', async (ctx: any) => {
+  try {
+    const { name, description, content } = ctx.request.body;
+    const updated = updateTemplate('dockerfile', ctx.params.key, { name, description, content });
+    if (!updated) {
+      ctx.status = 404;
+      ctx.body = { success: false, error: 'Template not found' };
+      return;
+    }
+    ctx.body = { success: true, data: updated };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.delete('/api/settings/dockerfile-templates/:key', async (ctx: any) => {
+  try {
+    const existing = getTemplate('dockerfile', ctx.params.key);
+    if (!existing) {
+      ctx.status = 404;
+      ctx.body = { success: false, error: 'Template not found' };
+      return;
+    }
+    if (existing.builtin) {
+      ctx.status = 403;
+      ctx.body = { success: false, error: 'Cannot delete builtin template' };
+      return;
+    }
+    deleteTemplate('dockerfile', ctx.params.key);
+    ctx.body = { success: true, data: { deleted: true } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+// ========== Nginx 配置 CRUD ==========
+
+settingsRouter.get('/api/settings/nginx-configs', async (ctx: any) => {
+  try {
+    const configs = listTemplates('nginx');
+    ctx.body = { success: true, data: configs };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.get('/api/settings/nginx-configs/:key', async (ctx: any) => {
+  try {
+    const config = getTemplate('nginx', ctx.params.key);
+    if (!config) {
+      ctx.status = 404;
+      ctx.body = { success: false, error: 'Config not found' };
+      return;
+    }
+    ctx.body = { success: true, data: config };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.post('/api/settings/nginx-configs', async (ctx: any) => {
+  try {
+    const { key, name, description, content } = ctx.request.body;
+    const config = addTemplate('nginx', { key, name, description, content });
+    ctx.status = 201;
+    ctx.body = { success: true, data: config };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.put('/api/settings/nginx-configs/:key', async (ctx: any) => {
+  try {
+    const { name, description, content } = ctx.request.body;
+    const updated = updateTemplate('nginx', ctx.params.key, { name, description, content });
+    if (!updated) {
+      ctx.status = 404;
+      ctx.body = { success: false, error: 'Config not found' };
+      return;
+    }
+    ctx.body = { success: true, data: updated };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.delete('/api/settings/nginx-configs/:key', async (ctx: any) => {
+  try {
+    const existing = getTemplate('nginx', ctx.params.key);
+    if (!existing) {
+      ctx.status = 404;
+      ctx.body = { success: false, error: 'Config not found' };
+      return;
+    }
+    if (existing.builtin) {
+      ctx.status = 403;
+      ctx.body = { success: false, error: 'Cannot delete builtin config' };
+      return;
+    }
+    deleteTemplate('nginx', ctx.params.key);
+    ctx.body = { success: true, data: { deleted: true } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+// ========== Registry 配置 ==========
+
+settingsRouter.get('/api/settings/registry', async (ctx: any) => {
+  try {
+    const registry = getRegistryConfig();
+    ctx.body = { success: true, data: { ...registry, secret: '***' } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.put('/api/settings/registry', async (ctx: any) => {
+  try {
+    const { url, authMethod, username, secret } = ctx.request.body;
+    const current = getRegistryConfig();
+    // secret 为空时不覆盖已有值
+    const newSecret = secret ? secret : current.secret;
+    saveRegistryConfig({ url, authMethod, username, secret: newSecret });
+    ctx.body = { success: true, data: { url, authMethod, username, secret: '***' } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});

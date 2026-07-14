@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 
 const GIT_TIMEOUT = 30_000; // 30 seconds
@@ -124,4 +125,59 @@ export async function pullBranch(projectPath: string): Promise<string> {
 
   const output = await execGit(projectPath, ['pull']);
   return output.trim();
+}
+
+/**
+ * Fetch a specific branch from origin.
+ */
+export async function fetchBranch(projectPath: string, branch: string): Promise<void> {
+  validatePath(projectPath);
+  validateBranchName(branch);
+
+  await execGit(projectPath, ['fetch', 'origin', branch]);
+}
+
+/**
+ * Add a detached worktree for the given branch.
+ * Checks whether the branch exists locally first, falls back to origin/<branch>.
+ */
+export async function addWorktree(projectPath: string, branch: string, worktreePath: string): Promise<void> {
+  validatePath(projectPath);
+  validateBranchName(branch);
+
+  // 先检测本地分支是否存在
+  let ref = branch;
+  try {
+    await execGit(projectPath, ['rev-parse', '--verify', branch]);
+  } catch {
+    // 本地不存在，尝试远程
+    ref = `origin/${branch}`;
+  }
+
+  await execGit(projectPath, ['worktree', 'add', '--detach', worktreePath, ref]);
+}
+
+/**
+ * Remove a worktree by path.
+ */
+export async function removeWorktree(projectPath: string, worktreePath: string): Promise<void> {
+  validatePath(projectPath);
+
+  await execGit(projectPath, ['worktree', 'remove', '--force', worktreePath]);
+}
+
+/**
+ * Prune stale worktree references.
+ */
+export async function pruneWorktrees(projectPath: string): Promise<void> {
+  validatePath(projectPath);
+
+  await execGit(projectPath, ['worktree', 'prune']);
+}
+
+/**
+ * Generate a temporary worktree path for a given build ID.
+ */
+export function generateWorktreePath(buildId: string): string {
+  return join(tmpdir(), 'auto-build-worktrees', buildId);
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Input, Button, Select, Space, Modal, List, Tag, message } from 'antd';
 import { FolderOutlined, SearchOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { directoryApi } from '../api';
@@ -19,9 +19,11 @@ interface DirectoryPickerProps {
   disabled?: boolean;
   /** Bump this value (e.g. on "更换项目") to clear the current selection without re-scanning. */
   resetToken?: number;
+  /** Bump this value to programmatically open the browse modal (e.g. from "New Project" button). */
+  openBrowseTrigger?: number;
 }
 
-export default function DirectoryPicker({ onProjectSelect, disabled = false, resetToken }: DirectoryPickerProps) {
+export default function DirectoryPicker({ onProjectSelect, disabled = false, resetToken, openBrowseTrigger }: DirectoryPickerProps) {
   const [parentPath, setParentPath] = useState('');
   const [scanning, setScanning] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
@@ -51,6 +53,17 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
       setBrowseLoading(false);
     }
   }, []);
+
+  // Open browse modal when openBrowseTrigger changes
+  const prevTriggerRef = useRef(openBrowseTrigger);
+  useEffect(() => {
+    if (openBrowseTrigger !== undefined && prevTriggerRef.current !== openBrowseTrigger) {
+      const initial = parentPath || '/';
+      setBrowseOpen(true);
+      loadDirs(initial);
+    }
+    prevTriggerRef.current = openBrowseTrigger;
+  }, [openBrowseTrigger, parentPath, loadDirs]);
 
   const handleBrowse = () => {
     if (disabled) return;
@@ -92,52 +105,79 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
   };
 
   return (
-    <div>
-      <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
-        <Input
-          placeholder="输入父目录路径，如 /Users/you/workspace"
-          value={parentPath}
-          onChange={(e) => setParentPath(e.target.value)}
-          prefix={<FolderOutlined />}
-          onPressEnter={handleScan}
-          disabled={disabled}
-        />
-        <Button icon={<FolderOpenOutlined />} onClick={handleBrowse} disabled={disabled}>
-          浏览
-        </Button>
-        <Button
-          type="primary"
-          icon={<SearchOutlined />}
-          loading={scanning}
-          onClick={handleScan}
-          disabled={disabled}
-        >
-          扫描
-        </Button>
-      </Space.Compact>
+    <div className="flex flex-col gap-md">
+      {/* Workspace Configuration Card */}
+      <section className="bg-surface-container p-md rounded-xl border border-outline-variant flex flex-col gap-sm">
+        <div className="flex items-center gap-xs mb-xs">
+          <span className="material-symbols-outlined text-primary text-xl">folder</span>
+          <h3 className="text-h2 text-on-surface text-lg">Workspace Configuration</h3>
+        </div>
+        <div className="flex flex-col gap-xs">
+          <label className="font-label-mono text-label-mono text-on-surface-variant">Parent Directory Path</label>
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              placeholder="输入父目录路径，如 /Users/you/workspace"
+              value={parentPath}
+              onChange={(e) => setParentPath(e.target.value)}
+              prefix={<FolderOutlined />}
+              onPressEnter={handleScan}
+              disabled={disabled}
+            />
+            <Button icon={<FolderOpenOutlined />} onClick={handleBrowse} disabled={disabled}>
+              浏览
+            </Button>
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              loading={scanning}
+              onClick={handleScan}
+              disabled={disabled}
+            >
+              扫描
+            </Button>
+          </Space.Compact>
+        </div>
+      </section>
 
+      {/* Project Selection Card */}
       {projects.length > 0 && (
-        <Select
-          mode="multiple"
-          placeholder="选择项目（可多选）"
-          style={{ width: '100%' }}
-          value={selectedPaths}
-          onChange={handleSelect}
-          disabled={disabled}
-          options={projects.map((p) => ({
-            value: p.path,
-            label: (
-              <span>
-                {p.name}
-                {p.isGitRepo && (
-                  <Tag color="green" style={{ marginLeft: 8 }}>
-                    Git
-                  </Tag>
-                )}
-              </span>
-            ),
-          }))}
-        />
+        <section className="bg-surface-container p-md rounded-xl border border-outline-variant flex flex-col gap-sm">
+          <div className="flex items-center justify-between border-b border-outline-variant pb-sm mb-xs">
+            <div className="flex items-center gap-xs">
+              <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
+              <h3 className="text-h2 text-on-surface text-lg">Project Selection</h3>
+            </div>
+            <span className="bg-surface-container-highest text-on-surface-variant font-label-mono text-label-mono px-xs py-1 rounded">
+              {projects.length} Found
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+            <div className="flex flex-col gap-xs">
+              <label className="font-label-mono text-label-mono text-on-surface-variant">Target Projects</label>
+              <Select
+                mode="multiple"
+                placeholder="选择项目（可多选）"
+                style={{ width: '100%' }}
+                value={selectedPaths}
+                onChange={handleSelect}
+                disabled={disabled}
+                options={projects.map((p) => ({
+                  value: p.path,
+                  label: (
+                    <span>
+                      {p.name}
+                      {p.isGitRepo && (
+                        <Tag color="green" style={{ marginLeft: 8 }}>
+                          Git
+                        </Tag>
+                      )}
+                    </span>
+                  ),
+                }))}
+              />
+            </div>
+          </div>
+        </section>
       )}
 
       <Modal
@@ -147,11 +187,11 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
         footer={null}
         width={600}
       >
-        <div style={{ marginBottom: 12, color: '#888' }}>{browsePath}</div>
+        <div className="mb-3 text-on-surface-variant">{browsePath}</div>
         {browseParentPath !== null && (
           <Button
             icon={<FolderOutlined />}
-            style={{ marginBottom: 8 }}
+            className="mb-2"
             onClick={() => loadDirs(browseParentPath!)}
           >
             返回上级
@@ -162,16 +202,16 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
           dataSource={dirs}
           renderItem={(item) => (
             <List.Item
-              style={{ cursor: 'pointer' }}
+              className="cursor-pointer"
               onClick={() => loadDirs(item.path)}
             >
-              <FolderOutlined style={{ marginRight: 8 }} />
+              <FolderOutlined className="mr-2" />
               {item.name}
             </List.Item>
           )}
           locale={{ emptyText: '无子目录' }}
         />
-        <div style={{ marginTop: 16, textAlign: 'right' }}>
+        <div className="mt-4 text-right">
           <Space>
             <Button onClick={() => setBrowseOpen(false)}>取消</Button>
             <Button

@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { buildApi } from '../api';
+import type { DockerBuildOptions } from '../types/buildConfig';
 
-export type BuildStatus = 'idle' | 'installing' | 'building' | 'packaging' | 'completed' | 'failed' | 'cancelled';
+export type BuildStatus = 'idle' | 'installing' | 'building' | 'docker-building' | 'docker-pushing' | 'packaging' | 'completed' | 'failed' | 'cancelled';
 export type BatchProjectStatus = 'pending' | 'building' | 'completed' | 'failed' | 'skipped';
 
 export interface LogEntry {
@@ -40,6 +41,9 @@ interface UseBuildReturn {
   downloadProject: (buildId: string) => void;
   downloadAll: () => void;
   resetBuildState: () => void;
+  // Docker options (set by UI, passed to backend)
+  dockerOptions: DockerBuildOptions | null;
+  setDockerOptions: React.Dispatch<React.SetStateAction<DockerBuildOptions | null>>;
 }
 
 export function useBuild(): UseBuildReturn {
@@ -56,6 +60,9 @@ export function useBuild(): UseBuildReturn {
   const [currentProjectIndex, setCurrentProjectIndex] = useState(0);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [batchComplete, setBatchComplete] = useState(false);
+
+  // Docker options (set by UI, passed to backend as-is)
+  const [dockerOptions, setDockerOptions] = useState<DockerBuildOptions | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -86,7 +93,7 @@ export function useBuild(): UseBuildReturn {
     });
 
     try {
-      const res = await buildApi.start(projectPath, socket.id!, branch);
+      const res = await buildApi.start(projectPath, socket.id!, branch, dockerOptions ?? undefined);
       const id = res.data.data.buildId;
       const pm = res.data.data.packageManager;
       setBuildId(id);
@@ -127,7 +134,7 @@ export function useBuild(): UseBuildReturn {
       setError(msg);
       cleanup();
     }
-  }, [cleanup]);
+  }, [cleanup, dockerOptions]);
 
   // Batch build
   const startBatchBuild = useCallback(async (projects: Array<{ name: string; path: string; branch?: string }>) => {
@@ -155,7 +162,8 @@ export function useBuild(): UseBuildReturn {
     });
 
     try {
-      const res = await buildApi.startBatch(projects, socket.id!);
+      const batchProjectsWithDocker = projects.map((p) => ({ ...p, dockerOptions: dockerOptions ?? undefined }));
+      const res = await buildApi.startBatch(batchProjectsWithDocker, socket.id!);
       const bId = res.data.data.batchId;
       setBatchId(bId);
 
@@ -219,7 +227,7 @@ export function useBuild(): UseBuildReturn {
       setBatchComplete(true);
       cleanup();
     }
-  }, [cleanup]);
+  }, [cleanup, dockerOptions]);
 
   const cancelBuild = useCallback(() => {
     if (buildId) {
@@ -297,5 +305,7 @@ export function useBuild(): UseBuildReturn {
     downloadProject,
     downloadAll,
     resetBuildState,
+    dockerOptions,
+    setDockerOptions,
   };
 }

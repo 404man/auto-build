@@ -50,37 +50,41 @@ export default function BranchSelector({ projectPath, onBranchSelect, disabled =
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: 24 }}>
+      <div className="flex items-center justify-center py-md">
         <Spin tip="加载分支列表..." />
       </div>
     );
   }
 
   return (
-    <div>
-      <div style={{ marginBottom: 8, color: '#666' }}>
-        当前分支：<Tag color="blue">{current || '-'}</Tag>
+    <div className="flex flex-col gap-xs">
+      <div className="flex items-center gap-xs text-on-surface-variant">
+        <span className="font-label-mono text-label-mono">当前分支：</span>
+        <Tag color="blue">{current || '-'}</Tag>
       </div>
-      <Select
-        placeholder="选择分支"
-        style={{ width: '100%' }}
-        value={selected}
-        onChange={handleChange}
-        disabled={disabled}
-        options={branches.map((b) => ({
-          value: b,
-          label: (
-            <span>
-              {b}
-              {b === current && (
-                <Tag color="blue" style={{ marginLeft: 8 }}>
-                  current
-                </Tag>
-              )}
-            </span>
-          ),
-        }))}
-      />
+      <div className="flex items-center gap-xs">
+        <span className="material-symbols-outlined text-primary text-xl">call_split</span>
+        <Select
+          placeholder="选择分支"
+          style={{ width: '100%' }}
+          value={selected}
+          onChange={handleChange}
+          disabled={disabled}
+          options={branches.map((b) => ({
+            value: b,
+            label: (
+              <span>
+                {b}
+                {b === current && (
+                  <Tag color="blue" style={{ marginLeft: 8 }}>
+                    current
+                  </Tag>
+                )}
+              </span>
+            ),
+          }))}
+        />
+      </div>
     </div>
   );
 }

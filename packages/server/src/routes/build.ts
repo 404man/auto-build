@@ -1,7 +1,7 @@
 import Router from '@koa/router';
 import { createReadStream, type ReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
@@ -55,25 +55,25 @@ buildRouter.get('/download/:buildId', async (ctx: any) => {
   const task = getBuildTask(buildId);
 
   if (!task) {
-    // 内存 Map 中找不到，尝试磁盘 fallback（服务器重启后 Map 丢失）
-    const zipFileName = `dist-${buildId}.zip`;
-    const fallbackPaths = [
-      join('/tmp', zipFileName),
-      join(homedir(), '.auto-build', 'artifacts', zipFileName),
-    ];
-
-    for (const fallbackPath of fallbackPaths) {
-      try {
-        const stats = await stat(fallbackPath);
-        if (stats.isFile()) {
-          ctx.set('Content-Type', 'application/zip');
-          ctx.set('Content-Disposition', `attachment; filename="${zipFileName}"`);
-          ctx.set('Content-Length', String(stats.size));
-          ctx.body = createReadStream(fallbackPath);
-          return;
-        }
-      } catch { /* 文件不存在 */ }
+    // 磁盘 fallback：服务器重启后 Map 丢失，直接检查 zip 是否存在
+    // buildId 必须是合法 UUID，防止路径穿越
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(buildId)) {
+      ctx.status = 404;
+      ctx.body = { success: false, error: '构建产物不存在或已过期' };
+      return;
     }
+
+    const zipPath = `${homedir()}/.auto-build/artifacts/dist-${buildId}.zip`;
+    try {
+      const stats = await stat(zipPath);
+      if (stats.isFile()) {
+        ctx.set('Content-Type', 'application/zip');
+        ctx.set('Content-Disposition', `attachment; filename="dist-${buildId}.zip"`);
+        ctx.set('Content-Length', String(stats.size));
+        ctx.body = createReadStream(zipPath);
+        return;
+      }
+    } catch { /* 文件不存在 */ }
 
     ctx.status = 404;
     ctx.body = { success: false, error: '构建产物不存在或已过期' };

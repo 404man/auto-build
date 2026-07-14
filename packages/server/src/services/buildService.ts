@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { stat, unlink, access, readFile } from 'node:fs/promises';
+import { stat, unlink, access, readFile, copyFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -305,6 +305,30 @@ export async function runBuild(
       task.worktreePath = worktreePath;
       buildDir = worktreePath;
       onOutput('stdout', `[auto-dist] worktree 准备完成\n`);
+
+      // 复制项目级 .npmrc 到 worktree（确保私有 registry 等配置生效）
+      const projectNpmrc = join(projectPath, '.npmrc');
+      const worktreeNpmrc = join(buildDir, '.npmrc');
+      try {
+        await access(projectNpmrc);
+        await copyFile(projectNpmrc, worktreeNpmrc);
+        onOutput('stdout', `[auto-dist] 已复制项目 .npmrc 到构建目录\n`);
+      } catch {
+        // 项目无 .npmrc，无需处理
+      }
+
+      // 复制 pnpm-workspace.yaml 到 buildDir（monorepo 场景下 worktree 根目录与 buildDir 可能不同）
+      if (buildDir !== worktreePath) {
+        const worktreeWorkspaceYaml = join(worktreePath, 'pnpm-workspace.yaml');
+        const buildDirWorkspaceYaml = join(buildDir, 'pnpm-workspace.yaml');
+        try {
+          await access(worktreeWorkspaceYaml);
+          await copyFile(worktreeWorkspaceYaml, buildDirWorkspaceYaml);
+          onOutput('stdout', `[auto-dist] 已复制 pnpm-workspace.yaml 到构建目录\n`);
+        } catch {
+          // worktree 无 pnpm-workspace.yaml，无需处理
+        }
+      }
     }
 
     // 在 buildDir 上检测包管理器（worktree 可能有不同的 lock 文件）

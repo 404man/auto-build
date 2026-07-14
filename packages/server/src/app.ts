@@ -110,7 +110,12 @@ io.on('connection', (socket) => {
 // 启动服务器
 const PORT = 3001;
 (async () => {
-  await initConfigService();
+  try {
+    await initConfigService();
+  } catch (err) {
+    console.error('[Server] Failed to initialize config service:', err);
+    console.error('[Server] Continuing with in-memory defaults');
+  }
   server.listen(PORT, () => {
     console.log(`[Server] Running at http://localhost:${PORT}`);
     console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);

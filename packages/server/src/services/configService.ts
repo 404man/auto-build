@@ -154,10 +154,20 @@ function getTemplatesArray(type: TemplateType): StoredTemplate[] {
   return type === 'dockerfile' ? settings.dockerfileTemplates : settings.nginxConfigs;
 }
 
-async function flush(): Promise<void> {
-  const data = JSON.stringify(settings, null, 2);
-  await writeFile(SETTINGS_TMP_PATH, data, 'utf-8');
-  await rename(SETTINGS_TMP_PATH, SETTINGS_PATH);
+let flushPromise: Promise<void> = Promise.resolve();
+
+function enqueueFlush(): Promise<void> {
+  flushPromise = flushPromise.then(async () => {
+    const data = JSON.stringify(settings, null, 2);
+    await writeFile(SETTINGS_TMP_PATH, data, 'utf-8');
+    await rename(SETTINGS_TMP_PATH, SETTINGS_PATH);
+  }).catch((err) => {
+    console.error('[ConfigService] flush failed:', err);
+    // 重置队列以允许后续重试
+    flushPromise = Promise.resolve();
+    throw err;
+  });
+  return flushPromise;
 }
 
 async function fileExists(p: string): Promise<boolean> {
@@ -178,15 +188,23 @@ async function fileExists(p: string): Promise<boolean> {
  */
 export async function initConfigService(): Promise<void> {
   if (await fileExists(SETTINGS_PATH)) {
-    const raw = await readFile(SETTINGS_PATH, 'utf-8');
-    settings = JSON.parse(raw) as Settings;
+    try {
+      const raw = await readFile(SETTINGS_PATH, 'utf-8');
+      settings = JSON.parse(raw) as Settings;
+    } catch (e) {
+      console.error(`[ConfigService] settings.json 解析失败，使用默认配置:`, e);
+      // 备份损坏的文件
+      await rename(SETTINGS_PATH, SETTINGS_PATH + '.bak').catch(() => {});
+      settings = structuredClone(DEFAULT_SETTINGS);
+      await enqueueFlush();
+    }
     return;
   }
 
   // 首次启动：创建目录 + 写入默认配置
   await mkdir(SETTINGS_DIR, { recursive: true });
   settings = structuredClone(DEFAULT_SETTINGS);
-  await flush();
+  await enqueueFlush();
 }
 
 /**
@@ -206,49 +224,49 @@ export function getTemplate(type: TemplateType, key: string): StoredTemplate | u
 /**
  * 新增模板，key 不可重复，builtin 由系统控制
  */
-export function addTemplate(
+export async function addTemplate(
   type: TemplateType,
   template: Omit<StoredTemplate, 'builtin'>,
-): StoredTemplate {
+): Promise<StoredTemplate> {
   const arr = getTemplatesArray(type);
   if (arr.some((t) => t.key === template.key)) {
     throw new Error(`Template key "${template.key}" already exists`);
   }
   const newTemplate: StoredTemplate = { ...template, builtin: false };
   arr.push(newTemplate);
-  flush();
+  await enqueueFlush();
   return newTemplate;
 }
 
 /**
  * 更新模板（不可修改 key 和 builtin）
  */
-export function updateTemplate(
+export async function updateTemplate(
   type: TemplateType,
   key: string,
   patch: Partial<Omit<StoredTemplate, 'key' | 'builtin'>>,
-): StoredTemplate | undefined {
+): Promise<StoredTemplate | undefined> {
   const arr = getTemplatesArray(type);
   const idx = arr.findIndex((t) => t.key === key);
   if (idx === -1) return undefined;
 
   const updated = { ...arr[idx], ...patch };
   arr[idx] = updated;
-  flush();
+  await enqueueFlush();
   return updated;
 }
 
 /**
  * 删除模板，builtin 模板不可删除
  */
-export function deleteTemplate(type: TemplateType, key: string): boolean {
+export async function deleteTemplate(type: TemplateType, key: string): Promise<boolean> {
   const arr = getTemplatesArray(type);
   const idx = arr.findIndex((t) => t.key === key);
   if (idx === -1) return false;
   if (arr[idx].builtin) return false;
 
   arr.splice(idx, 1);
-  flush();
+  await enqueueFlush();
   return true;
 }
 
@@ -262,7 +280,7 @@ export function getRegistryConfig(): Settings['registry'] {
 /**
  * 保存 Registry 配置
  */
-export function saveRegistryConfig(registry: Settings['registry']): void {
+export async function saveRegistryConfig(registry: Settings['registry']): Promise<void> {
   settings.registry = { ...registry };
-  flush();
+  await enqueueFlush();
 }

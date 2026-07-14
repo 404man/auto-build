@@ -98,7 +98,7 @@ function spawnWithStdin(
 /**
  * 校验 Dockerfile 内容安全性
  */
-function validateDockerfileContent(content: string): void {
+export function validateDockerfileContent(content: string): void {
   if (Buffer.byteLength(content, 'utf-8') > MAX_DOCKERFILE_SIZE) {
     throw new Error(`Dockerfile 内容超过最大限制 (${MAX_DOCKERFILE_SIZE / 1024}KB)`);
   }

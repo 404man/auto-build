@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { stat, unlink, access } from 'node:fs/promises';
+import { stat, unlink, access, readFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -390,12 +390,22 @@ export async function runBuild(
       const projectDockerfilePath = join(buildDir, 'Dockerfile');
       let useProjectDockerfile = false;
       if (!dockerOptions.customDockerfile) {
+        let fileExists = false;
         try {
           await access(projectDockerfilePath);
+          fileExists = true;
+          // 读取并校验项目自带 Dockerfile
+          const projectDockerfileContent = await readFile(projectDockerfilePath, 'utf-8');
+          const { validateDockerfileContent } = await import('./dockerService.js');
+          validateDockerfileContent(projectDockerfileContent);
           useProjectDockerfile = true;
           onOutput('stdout', `[auto-dist] 检测到项目目录已有 Dockerfile，优先使用\n`);
-        } catch {
-          // 项目无 Dockerfile，使用模板
+        } catch (e) {
+          if (fileExists) {
+            // 文件存在但校验失败，抛出错误而非静默回退
+            throw new Error(`项目目录 Dockerfile 安全校验失败: ${(e as Error).message}`);
+          }
+          // access 失败 = 项目无 Dockerfile，使用模板
         }
       }
 

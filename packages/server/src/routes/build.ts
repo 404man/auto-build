@@ -2,6 +2,7 @@ import Router from '@koa/router';
 import { createReadStream, type ReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   runBuild,
   runBatchBuild,
@@ -28,8 +29,15 @@ buildRouter.post('/start', async (ctx: any) => {
       return;
     }
 
-    const { buildId, packageManager } = await runBuild(projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand);
-    ctx.body = { success: true, data: { buildId, packageManager } };
+    const buildId = randomUUID();
+
+    // 立即响应（不等待构建完成）
+    ctx.body = { success: true, data: { buildId } };
+
+    // fire-and-forget：构建在后台异步执行
+    runBuild(projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand, buildId).catch((err) => {
+      console.error(`[Build] buildId=${buildId} unhandled error:`, err);
+    });
   } catch (err) {
     ctx.status = 500;
     ctx.body = {
@@ -181,8 +189,17 @@ buildRouter.post('/batch', async (ctx: any) => {
       branch: p.branch || branch || undefined,
     }));
 
-    const { batchId, buildIds } = await runBatchBuild(normalizedProjects, socketId, installCommand, buildCommand);
+    const batchId = randomUUID();
+    // 为每个项目预生成 buildId
+    const buildIds = normalizedProjects.map(() => randomUUID());
+
+    // 立即响应（不等待构建完成）
     ctx.body = { success: true, data: { batchId, buildIds } };
+
+    // fire-and-forget：批量构建在后台异步执行
+    runBatchBuild(normalizedProjects, socketId, installCommand, buildCommand, buildIds).catch((err) => {
+      console.error(`[Build] batchId=${batchId} unhandled error:`, err);
+    });
   } catch (err) {
     ctx.status = 500;
     ctx.body = {

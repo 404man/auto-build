@@ -213,9 +213,10 @@ export async function runBuild(
   socketId: string,
   branch?: string,
   projectName?: string,
-  dockerOptions?: DockerBuildOptions,
+  dockerOptions?: DockerBuildOptions | null,
   customInstallCommand?: string,
-  customBuildCommand?: string
+  customBuildCommand?: string,
+  externalBuildId?: string,
 ): Promise<{ buildId: string; packageManager: PackageManager }> {
   const io = getIo();
 
@@ -235,7 +236,7 @@ export async function runBuild(
     }
   }
 
-  const buildId = randomUUID();
+  const buildId = externalBuildId || randomUUID();
   const task: BuildTask = {
     id: buildId,
     projectPath,
@@ -526,6 +527,7 @@ export async function runBatchBuild(
   socketId: string,
   installCommand?: string,
   buildCommand?: string,
+  externalBuildIds?: string[],
 ): Promise<{ batchId: string; buildIds: string[] }> {
   const io = getIo();
   const batchId = randomUUID();
@@ -579,7 +581,7 @@ export async function runBatchBuild(
         } catch {
           // 分支不存在，跳过该项目
           results[i].status = 'skipped';
-          const skipBuildId = randomUUID();
+          const skipBuildId = externalBuildIds?.[i] || randomUUID();
           results[i].buildId = skipBuildId;
           buildIds.push(skipBuildId);
 
@@ -601,7 +603,7 @@ export async function runBatchBuild(
         }
       }
 
-      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions, installCommand, buildCommand);
+      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions, installCommand, buildCommand, externalBuildIds?.[i]);
       results[i].buildId = buildId;
       results[i].status = 'completed';
       buildIds.push(buildId);
@@ -628,7 +630,7 @@ export async function runBatchBuild(
       });
     } catch (err) {
       // 构建失败，记录错误但继续下一个
-      const failBuildId = randomUUID();
+      const failBuildId = externalBuildIds?.[i] || randomUUID();
       results[i].buildId = failBuildId;
       results[i].status = 'failed';
       buildIds.push(failBuildId);

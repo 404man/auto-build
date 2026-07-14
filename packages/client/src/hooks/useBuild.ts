@@ -17,6 +17,7 @@ export interface ProjectBuildState {
   path: string;
   status: BatchProjectStatus;
   buildId: string;
+  packageManager?: string;
 }
 
 interface UseBuildReturn {
@@ -184,13 +185,14 @@ export function useBuild(): UseBuildReturn {
         projectName: string;
         status: string;
         buildId: string;
+        packageManager?: string;
       }) => {
         if (data.batchId !== bId) return;
         setCurrentProjectIndex(data.currentIndex);
         setBatchProjects((prev) =>
           prev.map((p) =>
             p.name === data.projectName
-              ? { ...p, status: data.status as BatchProjectStatus, buildId: data.buildId || p.buildId }
+              ? { ...p, status: data.status as BatchProjectStatus, buildId: data.buildId || p.buildId, ...(data.packageManager ? { packageManager: data.packageManager } : {}) }
               : p,
           ),
         );
@@ -207,7 +209,7 @@ export function useBuild(): UseBuildReturn {
           setBatchProjects((prev) =>
             prev.map((p) =>
               p.name === data.projectName && (data.status === 'installing' || data.status === 'building' || data.status === 'packaging')
-                ? { ...p, status: 'building' }
+                ? { ...p, status: 'building', ...(data.packageManager ? { packageManager: data.packageManager } : {}) }
                 : p,
             ),
           );

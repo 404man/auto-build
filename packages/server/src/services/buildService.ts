@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { stat, unlink, access, readFile, copyFile } from 'node:fs/promises';
+import { stat, unlink, access, readFile, copyFile, mkdir } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import archiver from 'archiver';
 import treeKill from 'tree-kill';
 import { getIo } from './io.js';
@@ -412,7 +413,10 @@ export async function runBuild(
     onOutput('stdout', '[auto-dist] 开始打包 dist 目录...\n');
 
     const zipFileName = `dist-${buildId}.zip`;
-    const zipPath = join('/tmp', zipFileName);
+    // zip 输出到持久化目录，避免 macOS 重启清理 /tmp
+    const artifactsDir = join(homedir(), '.auto-build', 'artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+    const zipPath = join(artifactsDir, zipFileName);
     task.zipPath = zipPath;
 
     const output = createWriteStream(zipPath);

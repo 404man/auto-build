@@ -3,7 +3,6 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { stat, unlink, access, readFile, copyFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import archiver from 'archiver';
 import treeKill from 'tree-kill';
 import { getIo } from './io.js';
@@ -413,7 +412,7 @@ export async function runBuild(
     onOutput('stdout', '[auto-dist] 开始打包 dist 目录...\n');
 
     const zipFileName = `dist-${buildId}.zip`;
-    const zipPath = join(tmpdir(), zipFileName);
+    const zipPath = join('/tmp', zipFileName);
     task.zipPath = zipPath;
 
     const output = createWriteStream(zipPath);

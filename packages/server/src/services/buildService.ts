@@ -76,11 +76,12 @@ function spawnCommand(
   args: string[],
   cwd: string,
   onOutput: (type: 'stdout' | 'stderr', data: string) => void,
+  extraEnv?: Record<string, string>,
 ): { child: ChildProcess; exitPromise: Promise<{ code: number }> } {
   const child = spawn(command, args, {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, FORCE_COLOR: '0' },
+    env: { ...process.env, FORCE_COLOR: '0', ...extraEnv },
   });
 
   child.stdout?.on('data', (chunk: Buffer) => {
@@ -317,18 +318,7 @@ export async function runBuild(
         // 项目无 .npmrc，无需处理
       }
 
-      // 复制 pnpm-workspace.yaml 到 buildDir（monorepo 场景下 worktree 根目录与 buildDir 可能不同）
-      if (buildDir !== worktreePath) {
-        const worktreeWorkspaceYaml = join(worktreePath, 'pnpm-workspace.yaml');
-        const buildDirWorkspaceYaml = join(buildDir, 'pnpm-workspace.yaml');
-        try {
-          await access(worktreeWorkspaceYaml);
-          await copyFile(worktreeWorkspaceYaml, buildDirWorkspaceYaml);
-          onOutput('stdout', `[auto-dist] 已复制 pnpm-workspace.yaml 到构建目录\n`);
-        } catch {
-          // worktree 无 pnpm-workspace.yaml，无需处理
-        }
-      }
+      // pnpm-workspace.yaml 已由 git worktree 自带（buildDir === worktreePath），无需额外复制
     }
 
     // 在 buildDir 上检测包管理器（worktree 可能有不同的 lock 文件）
@@ -346,7 +336,21 @@ export async function runBuild(
     }
     onOutput('stdout', `[auto-dist] 开始执行 ${installCmd.command} ${installCmd.args.join(' ')}...\n`);
 
-    const installSpawn = spawnCommand(installCmd.command, installCmd.args, buildDir, onOutput);
+    // 解析 .npmrc 中的 registry 配置，通过环境变量显式传递给子进程
+    // 解决 pnpm 在 worktree 中不读取项目 .npmrc 导致私有 registry 配置丢失的问题
+    let npmRegistry: string | undefined;
+    try {
+      const npmrcPath = join(buildDir, '.npmrc');
+      const npmrcContent = await readFile(npmrcPath, 'utf-8');
+      const registryMatch = npmrcContent.match(/^registry\s*=\s*(.+)$/m);
+      if (registryMatch) {
+        npmRegistry = registryMatch[1].trim();
+        onOutput('stdout', `[auto-dist] 检测到 .npmrc registry: ${npmRegistry}\n`);
+      }
+    } catch { /* 无 .npmrc 或读取失败，忽略 */ }
+
+    const installEnv = npmRegistry ? { NPM_CONFIG_REGISTRY: npmRegistry } : undefined;
+    const installSpawn = spawnCommand(installCmd.command, installCmd.args, buildDir, onOutput, installEnv);
     task.process = installSpawn.child;
     const installResult = await installSpawn.exitPromise;
 

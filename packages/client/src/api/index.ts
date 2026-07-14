@@ -61,16 +61,16 @@ export const projectApi = {
 
 /* ---------- Build API ---------- */
 export const buildApi = {
-  start(projectPath: string, socketId: string, branch?: string, dockerOptions?: DockerBuildOptions) {
+  start(projectPath: string, socketId: string, branch?: string, dockerOptions?: DockerBuildOptions, installCommand?: string, buildCommand?: string) {
     return http.post<{ success: boolean; data: { buildId: string; status: string; packageManager: string } }>(
       '/build/start',
-      { projectPath, socketId, branch, dockerOptions },
+      { projectPath, socketId, branch, dockerOptions, installCommand, buildCommand },
     );
   },
-  startBatch(projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>, socketId: string) {
+  startBatch(projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>, socketId: string, installCommand?: string, buildCommand?: string) {
     return http.post<{ success: boolean; data: { batchId: string; buildIds: string[] } }>(
       '/build/batch',
-      { projects, socketId },
+      { projects, socketId, installCommand, buildCommand },
     );
   },
   getBatchStatus(batchId: string) {

@@ -189,6 +189,18 @@ function scheduleTaskCleanup(buildId: string): void {
 // ========== 核心构建函数 ==========
 
 /**
+ * 解析自定义命令字符串为 command + args
+ * 例如: "npm install" => { command: 'npm', args: ['install'] }
+ *       "npm run build" => { command: 'npm', args: ['run', 'build'] }
+ */
+function parseCustomCommand(cmd: string): { command: string; args: string[] } | null {
+  const trimmed = cmd.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/\s+/);
+  return { command: parts[0], args: parts.slice(1) };
+}
+
+/**
  * 启动构建流程
  * 1. 自动检测包管理器
  * 2. {pm} install
@@ -201,7 +213,9 @@ export async function runBuild(
   socketId: string,
   branch?: string,
   projectName?: string,
-  dockerOptions?: DockerBuildOptions
+  dockerOptions?: DockerBuildOptions,
+  customInstallCommand?: string,
+  customBuildCommand?: string
 ): Promise<{ buildId: string; packageManager: PackageManager }> {
   const io = getIo();
 
@@ -297,10 +311,14 @@ export async function runBuild(
     task.packageManager = packageManager;
 
     // Step 1: {pm} install
-    const installCmd = getInstallCommand(packageManager);
+    const parsedCustomInstall = customInstallCommand ? parseCustomCommand(customInstallCommand) : null;
+    const installCmd = parsedCustomInstall || getInstallCommand(packageManager);
     task.status = 'installing';
     io.to(socketId).emit('build:status', { buildId, status: 'installing', packageManager, projectName });
     onOutput('stdout', `[auto-dist] 检测到包管理器: ${packageManager}\n`);
+    if (parsedCustomInstall) {
+      onOutput('stdout', `[auto-dist] 使用自定义安装命令: ${customInstallCommand}\n`);
+    }
     onOutput('stdout', `[auto-dist] 开始执行 ${installCmd.command} ${installCmd.args.join(' ')}...\n`);
 
     const installSpawn = spawnCommand(installCmd.command, installCmd.args, buildDir, onOutput);
@@ -319,9 +337,13 @@ export async function runBuild(
     onOutput('stdout', `[auto-dist] ${installCmd.command} install 完成\n`);
 
     // Step 2: {pm} build
-    const buildCmd = getBuildCommand(packageManager);
+    const parsedCustomBuild = customBuildCommand ? parseCustomCommand(customBuildCommand) : null;
+    const buildCmd = parsedCustomBuild || getBuildCommand(packageManager);
     task.status = 'building';
     io.to(socketId).emit('build:status', { buildId, status: 'building', packageManager, projectName });
+    if (parsedCustomBuild) {
+      onOutput('stdout', `[auto-dist] 使用自定义构建命令: ${customBuildCommand}\n`);
+    }
     onOutput('stdout', `[auto-dist] 开始执行 ${buildCmd.command} ${buildCmd.args.join(' ')}...\n`);
 
     const buildSpawn = spawnCommand(buildCmd.command, buildCmd.args, buildDir, onOutput);
@@ -502,6 +524,8 @@ export async function runBuild(
 export async function runBatchBuild(
   projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>,
   socketId: string,
+  installCommand?: string,
+  buildCommand?: string,
 ): Promise<{ batchId: string; buildIds: string[] }> {
   const io = getIo();
   const batchId = randomUUID();
@@ -577,7 +601,7 @@ export async function runBatchBuild(
         }
       }
 
-      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions);
+      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions, installCommand, buildCommand);
       results[i].buildId = buildId;
       results[i].status = 'completed';
       buildIds.push(buildId);

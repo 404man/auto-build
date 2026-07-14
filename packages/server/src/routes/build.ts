@@ -20,7 +20,7 @@ const buildRouter = new Router();
 buildRouter.post('/start', async (ctx: any) => {
   try {
     const body = ctx.request.body;
-    const { projectPath, socketId, branch, projectName, dockerOptions } = body ?? {};
+    const { projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand } = body ?? {};
 
     if (!projectPath || !socketId) {
       ctx.status = 400;
@@ -28,7 +28,7 @@ buildRouter.post('/start', async (ctx: any) => {
       return;
     }
 
-    const { buildId, packageManager } = await runBuild(projectPath, socketId, branch, projectName, dockerOptions);
+    const { buildId, packageManager } = await runBuild(projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand);
     ctx.body = { success: true, data: { buildId, packageManager } };
   } catch (err) {
     ctx.status = 500;
@@ -161,7 +161,7 @@ buildRouter.get('/status/:buildId', async (ctx: any) => {
 buildRouter.post('/batch', async (ctx: any) => {
   try {
     const body = ctx.request.body;
-    const { projects, branch, socketId } = body ?? {};
+    const { projects, branch, socketId, installCommand, buildCommand } = body ?? {};
 
     if (!projects || !Array.isArray(projects) || projects.length === 0) {
       ctx.status = 400;
@@ -181,7 +181,7 @@ buildRouter.post('/batch', async (ctx: any) => {
       branch: p.branch || branch || undefined,
     }));
 
-    const { batchId, buildIds } = await runBatchBuild(normalizedProjects, socketId);
+    const { batchId, buildIds } = await runBatchBuild(normalizedProjects, socketId, installCommand, buildCommand);
     ctx.body = { success: true, data: { batchId, buildIds } };
   } catch (err) {
     ctx.status = 500;

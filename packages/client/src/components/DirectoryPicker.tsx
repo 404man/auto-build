@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Input, Button, Select, Space, Modal, List, Tag, message } from 'antd';
-import { FolderOutlined, SearchOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { FolderOutlined, FolderOpenOutlined, SearchOutlined } from '@ant-design/icons';
 import { directoryApi } from '../api';
 
 interface ProjectInfo {
@@ -28,10 +28,29 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
   const [scanning, setScanning] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [hasScanned, setHasScanned] = useState(false);
+
+  // Recent paths from localStorage
+  const [recentPaths, setRecentPaths] = useState<string[]>(() => {
+    try {
+      const cached = localStorage.getItem('auto-build:recentPaths');
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+
+  const saveRecentPath = useCallback((path: string) => {
+    setRecentPaths(prev => {
+      const next = [path, ...prev.filter(p => p !== path)].slice(0, 10);
+      localStorage.setItem('auto-build:recentPaths', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (resetToken === undefined) return;
     setSelectedPaths([]);
+    setProjects([]);
+    setHasScanned(false);
   }, [resetToken]);
 
   const [browseOpen, setBrowseOpen] = useState(false);
@@ -54,6 +73,35 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
     }
   }, []);
 
+  // Core scan function - returns true on success
+  const doScan = useCallback(async (path: string): Promise<boolean> => {
+    if (!path.trim()) {
+      message.warning('请输入目录路径');
+      return false;
+    }
+    setScanning(true);
+    setProjects([]);
+    setSelectedPaths([]);
+    setHasScanned(false);
+    onProjectSelect([]);
+    try {
+      const res = await directoryApi.scan(path);
+      const list = res.data.data.projects;
+      if (list.length === 0) {
+        message.info('该目录下未找到项目');
+      }
+      setProjects(list);
+      setHasScanned(true);
+      saveRecentPath(path);
+      return true;
+    } catch {
+      message.error('扫描失败');
+      return false;
+    } finally {
+      setScanning(false);
+    }
+  }, [onProjectSelect, saveRecentPath]);
+
   // Open browse modal when openBrowseTrigger changes
   const prevTriggerRef = useRef(openBrowseTrigger);
   useEffect(() => {
@@ -72,27 +120,8 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
     loadDirs(initial);
   };
 
-  const handleScan = async () => {
-    if (!parentPath.trim()) {
-      message.warning('请输入目录路径');
-      return;
-    }
-    setScanning(true);
-    setProjects([]);
-    setSelectedPaths([]);
-    onProjectSelect([]);
-    try {
-      const res = await directoryApi.scan(parentPath);
-      const list = res.data.data.projects;
-      if (list.length === 0) {
-        message.info('该目录下未找到项目');
-      }
-      setProjects(list);
-    } catch {
-      message.error('扫描失败');
-    } finally {
-      setScanning(false);
-    }
+  const handleScan = () => {
+    doScan(parentPath);
   };
 
   const handleSelect = (values: string[]) => {
@@ -114,7 +143,7 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
         </div>
         <div className="flex flex-col gap-xs">
           <label className="font-label-mono text-label-mono text-on-surface-variant">Parent Directory Path</label>
-          <Space.Compact style={{ width: '100%' }}>
+          <div className="flex items-center gap-sm">
             <Input
               placeholder="输入父目录路径，如 /Users/you/workspace"
               value={parentPath}
@@ -122,6 +151,7 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
               prefix={<FolderOutlined />}
               onPressEnter={handleScan}
               disabled={disabled}
+              style={{ flex: 1 }}
             />
             <Button icon={<FolderOpenOutlined />} onClick={handleBrowse} disabled={disabled}>
               浏览
@@ -133,19 +163,53 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
               onClick={handleScan}
               disabled={disabled}
             >
-              扫描
+              扫描目录
             </Button>
-          </Space.Compact>
+          </div>
+
+          {/* Scan status */}
+          {scanning && (
+            <div className="flex items-center gap-xs text-primary">
+              <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+              <span className="text-body-sm">正在扫描...</span>
+            </div>
+          )}
+          {!scanning && hasScanned && (
+            <div className="flex items-center gap-xs text-on-surface-variant">
+              <span className="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+              <span className="text-body-sm">已扫描 {projects.length} 个项目</span>
+            </div>
+          )}
         </div>
+
+        {/* Recent Paths */}
+        {recentPaths.length > 0 && (
+          <div className="mt-xs flex flex-col gap-xs">
+            <span className="font-label-mono text-label-mono text-on-surface-variant">Recent Paths</span>
+            {recentPaths.map((path, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  setParentPath(path);
+                }}
+                disabled={disabled || scanning}
+                className="text-left text-body-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest px-sm py-xs rounded transition-colors flex items-center gap-xs disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">history</span>
+                <span className="font-label-mono truncate">{path}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Project Selection Card */}
-      {projects.length > 0 && (
+      {hasScanned && projects.length > 0 && (
         <section className="bg-surface-container p-md rounded-xl border border-outline-variant flex flex-col gap-sm">
           <div className="flex items-center justify-between border-b border-outline-variant pb-sm mb-xs">
             <div className="flex items-center gap-xs">
               <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
-              <h3 className="text-h2 text-on-surface text-lg">Project Selection</h3>
+              <h3 className="text-h2 text-on-surface text-lg">请选择项目</h3>
             </div>
             <span className="bg-surface-container-highest text-on-surface-variant font-label-mono text-label-mono px-xs py-1 rounded">
               {projects.length} Found

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Radio, Select, Switch, Input } from 'antd';
+import { Radio, Select, Switch, Input, Modal, message } from 'antd';
 import { settingsApi } from '../api';
 import type { TemplateListItem } from '../types/buildConfig';
 
@@ -12,6 +12,8 @@ export interface BuildConfigState {
   pushEnabled: boolean;
   registryUrl: string;
   imageName: string;
+  installCommand: string;   // 自定义安装命令，空字符串表示使用自动检测
+  buildCommand: string;     // 自定义构建命令，空字符串表示使用自动检测
 }
 
 interface BuildConfigurationProps {
@@ -30,40 +32,100 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
     pushEnabled: false,
     registryUrl: '',
     imageName: '',
+    installCommand: '',
+    buildCommand: '',
   });
 
   const [dockerTemplates, setDockerTemplates] = useState<TemplateListItem[]>([]);
   const [nginxTemplates, setNginxTemplates] = useState<TemplateListItem[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [dockerRes, nginxRes] = await Promise.all([
-          settingsApi.listDockerfileTemplates(),
-          settingsApi.listNginxConfigs(),
-        ]);
-        setDockerTemplates(dockerRes.data.data);
-        setNginxTemplates(nginxRes.data.data);
-      } catch {
-        // 降级：使用内置默认选项
-        setDockerTemplates([
-          { key: 'node', name: 'Node.js (Standard)', description: 'Node.js 18 Alpine', builtin: true },
-          { key: 'react-nginx', name: 'React (Nginx)', description: 'Multi-stage build', builtin: true },
-          { key: 'python-flask', name: 'Python (Flask)', description: 'Python 3.11 slim', builtin: true },
-          { key: 'custom', name: 'Custom', description: 'Custom Dockerfile', builtin: true },
-        ]);
-        setNginxTemplates([
-          { key: 'standard-spa', name: 'Standard SPA', description: 'try_files fallback', builtin: true },
-          { key: 'reverse-proxy', name: 'Reverse Proxy', description: 'Frontend + API proxy', builtin: true },
-          { key: 'custom', name: 'Custom', description: 'Custom Nginx config', builtin: true },
-        ]);
-      } finally {
-        setTemplatesLoading(false);
-      }
-    };
-    load();
+  // Edit modal state
+  const [editDockerModal, setEditDockerModal] = useState(false);
+  const [editNginxModal, setEditNginxModal] = useState(false);
+  const [editingTemplateContent, setEditingTemplateContent] = useState('');
+  const [editingTemplateKey, setEditingTemplateKey] = useState('');
+  const [editingTemplateType, setEditingTemplateType] = useState<'dockerfile' | 'nginx'>('dockerfile');
+
+  const reloadTemplates = useCallback(async () => {
+    try {
+      const [dockerRes, nginxRes] = await Promise.all([
+        settingsApi.listDockerfileTemplates(),
+        settingsApi.listNginxConfigs(),
+      ]);
+      setDockerTemplates(dockerRes.data.data);
+      setNginxTemplates(nginxRes.data.data);
+    } catch {
+      // 降级：使用内置默认选项
+      setDockerTemplates([
+        { key: 'node', name: 'Node.js (Standard)', description: 'Node.js 18 Alpine', builtin: true },
+        { key: 'react-nginx', name: 'React (Nginx)', description: 'Multi-stage build', builtin: true },
+        { key: 'python-flask', name: 'Python (Flask)', description: 'Python 3.11 slim', builtin: true },
+        { key: 'custom', name: 'Custom', description: 'Custom Dockerfile', builtin: true },
+      ]);
+      setNginxTemplates([
+        { key: 'standard-spa', name: 'Standard SPA', description: 'try_files fallback', builtin: true },
+        { key: 'reverse-proxy', name: 'Reverse Proxy', description: 'Frontend + API proxy', builtin: true },
+        { key: 'custom', name: 'Custom', description: 'Custom Nginx config', builtin: true },
+      ]);
+    } finally {
+      setTemplatesLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    reloadTemplates();
+  }, [reloadTemplates]);
+
+  const handleEditDocker = useCallback(async () => {
+    try {
+      const res = await settingsApi.getDockerfileTemplate(config.dockerfileTemplate);
+      setEditingTemplateKey(config.dockerfileTemplate);
+      setEditingTemplateType('dockerfile');
+      setEditingTemplateContent(res.data.data.content || '');
+      setEditDockerModal(true);
+    } catch {
+      message.error('Failed to load template');
+    }
+  }, [config.dockerfileTemplate]);
+
+  const handleEditNginx = useCallback(async () => {
+    try {
+      const res = await settingsApi.getNginxConfig(config.nginxConfig);
+      setEditingTemplateKey(config.nginxConfig);
+      setEditingTemplateType('nginx');
+      setEditingTemplateContent(res.data.data.content || '');
+      setEditNginxModal(true);
+    } catch {
+      message.error('Failed to load nginx config');
+    }
+  }, [config.nginxConfig]);
+
+  const handleSaveDockerTemplate = useCallback(async () => {
+    try {
+      await settingsApi.updateDockerfileTemplate(editingTemplateKey, {
+        content: editingTemplateContent,
+      });
+      message.success('Template updated');
+      setEditDockerModal(false);
+      reloadTemplates();
+    } catch {
+      message.error('Failed to update template');
+    }
+  }, [editingTemplateKey, editingTemplateContent, reloadTemplates]);
+
+  const handleSaveNginxConfig = useCallback(async () => {
+    try {
+      await settingsApi.updateNginxConfig(editingTemplateKey, {
+        content: editingTemplateContent,
+      });
+      message.success('Nginx config updated');
+      setEditNginxModal(false);
+      reloadTemplates();
+    } catch {
+      message.error('Failed to update nginx config');
+    }
+  }, [editingTemplateKey, editingTemplateContent, reloadTemplates]);
 
   const updateConfig = useCallback(
     (patch: Partial<BuildConfigState>) => {
@@ -79,6 +141,7 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
 
 
   return (
+    <>
     <section className="bg-surface-container p-md rounded-xl border border-outline-variant flex flex-col gap-sm">
       {/* Header */}
       <div className="flex items-center gap-xs border-b border-outline-variant pb-sm mb-xs">
@@ -99,20 +162,34 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
 
       {/* Commands Display */}
       <div className="flex flex-col gap-sm">
+        {/* Install Command */}
         <div className="flex flex-col gap-xs">
-          <label className="font-label-mono text-label-mono text-on-surface-variant">Install Command</label>
-          <div className="bg-surface-container-lowest border border-outline-variant rounded p-sm font-code-block text-code-block flex items-center gap-xs">
-            <span className="text-secondary">npm</span>{' '}
-            <span className="text-on-surface">install</span>
-          </div>
+          <label className="text-label-mono font-label-mono text-on-surface-variant">
+            Install Command
+            <span className="text-on-surface-variant opacity-50 ml-1">(auto-detect if empty)</span>
+          </label>
+          <Input
+            value={config.installCommand}
+            onChange={(e) => updateConfig({ installCommand: e.target.value })}
+            placeholder="e.g. npm install, pnpm install, yarn"
+            className="bg-surface border-outline-variant text-on-surface font-label-mono"
+            allowClear
+          />
         </div>
+
+        {/* Build Command */}
         <div className="flex flex-col gap-xs">
-          <label className="font-label-mono text-label-mono text-on-surface-variant">Build Command</label>
-          <div className="bg-surface-container-lowest border border-outline-variant rounded p-sm font-code-block text-code-block flex items-center gap-xs">
-            <span className="text-secondary">npm</span>{' '}
-            <span className="text-on-surface">run</span>{' '}
-            <span className="text-primary">build</span>
-          </div>
+          <label className="text-label-mono font-label-mono text-on-surface-variant">
+            Build Command
+            <span className="text-on-surface-variant opacity-50 ml-1">(auto-detect if empty)</span>
+          </label>
+          <Input
+            value={config.buildCommand}
+            onChange={(e) => updateConfig({ buildCommand: e.target.value })}
+            placeholder="e.g. npm run build, pnpm build, make"
+            className="bg-surface border-outline-variant text-on-surface font-label-mono"
+            allowClear
+          />
         </div>
       </div>
 
@@ -124,18 +201,30 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
           {/* Dockerfile Template */}
           <div className="flex flex-col gap-xs">
             <label className="font-label-mono text-label-mono text-on-surface-variant">Dockerfile Template</label>
-            <Select
-              value={config.dockerfileTemplate}
-              onChange={(v) => updateConfig({ dockerfileTemplate: v })}
-              style={{ width: '100%' }}
-              loading={templatesLoading}
-            >
-              {dockerTemplates.map(t => (
-                <Select.Option key={t.key} value={t.key}>
-                  {t.name}
-                </Select.Option>
-              ))}
-            </Select>
+            <div className="flex items-center gap-sm">
+              <Select
+                value={config.dockerfileTemplate}
+                onChange={(v) => updateConfig({ dockerfileTemplate: v })}
+                style={{ flex: 1 }}
+                loading={templatesLoading}
+              >
+                {dockerTemplates.map(t => (
+                  <Select.Option key={t.key} value={t.key}>
+                    {t.name}
+                  </Select.Option>
+                ))}
+              </Select>
+              {config.dockerfileTemplate && config.dockerfileTemplate !== 'custom' && (
+                <button
+                  type="button"
+                  onClick={handleEditDocker}
+                  className="text-on-surface-variant hover:text-primary transition-colors p-xs rounded hover:bg-surface-container-highest flex items-center justify-center"
+                  title="Edit template"
+                >
+                  <span className="material-symbols-outlined text-xl">edit</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Dockerfile Preview */}
@@ -159,18 +248,30 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
               </div>
               <div className="flex flex-col gap-xs">
                 <label className="font-label-mono text-label-mono text-on-surface-variant">Nginx Template</label>
-                <Select
-                  value={config.nginxConfig}
-                  onChange={(v) => updateConfig({ nginxConfig: v })}
-                  style={{ width: '100%' }}
-                  loading={templatesLoading}
-                >
-                  {nginxTemplates.map(t => (
-                    <Select.Option key={t.key} value={t.key}>
-                      {t.name}
-                    </Select.Option>
-                  ))}
-                </Select>
+                <div className="flex items-center gap-sm">
+                  <Select
+                    value={config.nginxConfig}
+                    onChange={(v) => updateConfig({ nginxConfig: v })}
+                    style={{ flex: 1 }}
+                    loading={templatesLoading}
+                  >
+                    {nginxTemplates.map(t => (
+                      <Select.Option key={t.key} value={t.key}>
+                        {t.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                  {config.nginxConfig && config.nginxConfig !== 'custom' && (
+                    <button
+                      type="button"
+                      onClick={handleEditNginx}
+                      className="text-on-surface-variant hover:text-primary transition-colors p-xs rounded hover:bg-surface-container-highest flex items-center justify-center"
+                      title="Edit nginx config"
+                    >
+                      <span className="material-symbols-outlined text-xl">edit</span>
+                    </button>
+                  )}
+                </div>
               </div>
               {config.nginxConfig === 'custom' && (
                 <Input.TextArea
@@ -219,5 +320,40 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
         </>
       )}
     </section>
+
+      {/* Dockerfile Template Edit Modal */}
+      <Modal
+        title={`Edit ${editingTemplateType === 'dockerfile' ? 'Dockerfile' : 'Nginx'} Template`}
+        open={editDockerModal}
+        onCancel={() => setEditDockerModal(false)}
+        onOk={handleSaveDockerTemplate}
+        width={720}
+      >
+        <Input.TextArea
+          value={editingTemplateContent}
+          onChange={(e) => setEditingTemplateContent(e.target.value)}
+          rows={16}
+          style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', lineHeight: '20px' }}
+          className="bg-surface border-outline-variant text-on-surface"
+        />
+      </Modal>
+
+      {/* Nginx Config Edit Modal */}
+      <Modal
+        title="Edit Nginx Template"
+        open={editNginxModal}
+        onCancel={() => setEditNginxModal(false)}
+        onOk={handleSaveNginxConfig}
+        width={720}
+      >
+        <Input.TextArea
+          value={editingTemplateContent}
+          onChange={(e) => setEditingTemplateContent(e.target.value)}
+          rows={16}
+          style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', lineHeight: '20px' }}
+          className="bg-surface border-outline-variant text-on-surface"
+        />
+      </Modal>
+    </>
   );
 }

@@ -26,7 +26,7 @@ interface UseBuildReturn {
   buildId: string | null;
   packageManager: string;
   error: string;
-  startBuild: (projectPath: string, branch?: string) => Promise<void>;
+  startBuild: (projectPath: string, branch?: string, installCommand?: string, buildCommand?: string) => Promise<void>;
   cancelBuild: () => void;
   downloadBuild: () => void;
   clearLogs: () => void;
@@ -37,7 +37,7 @@ interface UseBuildReturn {
   totalProjects: number;
   batchId: string | null;
   batchComplete: boolean;
-  startBatchBuild: (projects: Array<{ name: string; path: string; branch?: string }>) => Promise<void>;
+  startBatchBuild: (projects: Array<{ name: string; path: string; branch?: string }>, commands?: { installCommand?: string; buildCommand?: string }) => Promise<void>;
   downloadProject: (buildId: string) => void;
   downloadAll: () => void;
   resetBuildState: () => void;
@@ -76,7 +76,7 @@ export function useBuild(): UseBuildReturn {
   const totalProjects = batchProjects.length;
 
   // Single build
-  const startBuild = useCallback(async (projectPath: string, branch?: string) => {
+  const startBuild = useCallback(async (projectPath: string, branch?: string, installCommand?: string, buildCommand?: string) => {
     cleanup();
     setIsBatch(false);
     setStatus('installing');
@@ -93,7 +93,7 @@ export function useBuild(): UseBuildReturn {
     });
 
     try {
-      const res = await buildApi.start(projectPath, socket.id!, branch, dockerOptions ?? undefined);
+      const res = await buildApi.start(projectPath, socket.id!, branch, dockerOptions ?? undefined, installCommand, buildCommand);
       const id = res.data.data.buildId;
       const pm = res.data.data.packageManager;
       setBuildId(id);
@@ -137,7 +137,7 @@ export function useBuild(): UseBuildReturn {
   }, [cleanup, dockerOptions]);
 
   // Batch build
-  const startBatchBuild = useCallback(async (projects: Array<{ name: string; path: string; branch?: string }>) => {
+  const startBatchBuild = useCallback(async (projects: Array<{ name: string; path: string; branch?: string }>, commands?: { installCommand?: string; buildCommand?: string }) => {
     cleanup();
     setIsBatch(true);
     setStatus('idle');
@@ -163,7 +163,7 @@ export function useBuild(): UseBuildReturn {
 
     try {
       const batchProjectsWithDocker = projects.map((p) => ({ ...p, dockerOptions: dockerOptions ?? undefined }));
-      const res = await buildApi.startBatch(batchProjectsWithDocker, socket.id!);
+      const res = await buildApi.startBatch(batchProjectsWithDocker, socket.id!, commands?.installCommand, commands?.buildCommand);
       const bId = res.data.data.batchId;
       setBatchId(bId);
 

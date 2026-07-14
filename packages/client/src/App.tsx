@@ -1,118 +1,81 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import BuildCenter from './components/BuildCenter';
+import BuildCenterTab from './components/BuildCenterTab';
 import SettingsPage from './components/SettingsPage';
-import { type BuildConfigState } from './components/BuildConfiguration';
-import { useBuild } from './hooks/useBuild';
 import { appTheme } from './theme';
 
-interface SelectedProject {
+interface TabInfo {
+  id: string;
   name: string;
-  path: string;
+}
+
+function loadTabs(): TabInfo[] {
+  try {
+    const cached = localStorage.getItem('auto-build:tabs');
+    if (cached) {
+      const parsed = JSON.parse(cached) as TabInfo[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore */ }
+  return [{ id: 'default', name: 'Project 1' }];
 }
 
 function App() {
   const [activePage, setActivePage] = useState<'build' | 'settings'>('build');
-  const [projects, setProjects] = useState<SelectedProject[]>([]);
-  const [projectBranches, setProjectBranches] = useState<Record<string, string>>({});
-  const [pickerResetToken, setPickerResetToken] = useState(0);
-  const [openBrowseTrigger, setOpenBrowseTrigger] = useState(0);
-  const [buildConfig, setBuildConfig] = useState<BuildConfigState | null>(null);
-  const {
-    clearLogs,
-    cancelBuild,
-    downloadProject,
-    downloadAll,
-    startBatchBuild,
-    resetBuildState,
-    logs,
-    batchProjects,
-    currentProjectIndex,
-    totalProjects,
-    batchComplete,
-    error,
-    isBatch,
-  } = useBuild();
+  const [tabs, setTabs] = useState<TabInfo[]>(loadTabs);
+  const [activeTabId, setActiveTabId] = useState<string>(() => {
+    const loaded = loadTabs();
+    return loaded[0]?.id || 'default';
+  });
 
-  const handleProjectSelect = useCallback((selected: SelectedProject[]) => {
-    setProjects(selected);
-    setProjectBranches((prev) => {
-      const selectedPaths = new Set(selected.map((p) => p.path));
-      const next: Record<string, string> = {};
-      for (const path of selectedPaths) {
-        if (prev[path]) {
-          next[path] = prev[path];
-        }
-      }
-      return next;
-    });
-  }, []);
-
-  const handleBranchSelect = useCallback((projectPath: string, branch: string) => {
-    setProjectBranches((prev) => ({ ...prev, [projectPath]: branch }));
-  }, []);
-
-  const handleChangeProject = useCallback(() => {
-    setProjects([]);
-    setProjectBranches((prev) => {
-      const next: Record<string, string> = {};
-      for (const key of Object.keys(prev)) {
-        next[key] = '';
-      }
-      return next;
-    });
-    setPickerResetToken((t) => t + 1);
-    resetBuildState();
-  }, [resetBuildState]);
-
-  const allBranchesSelected = projects.length > 0 && projects.every((p) => !!projectBranches[p.path]);
-
-  const configLocked = batchProjects.length > 0 && !batchComplete;
-
-  const currentProjectName = useMemo(() => {
-    if (isBatch && batchProjects.length > 0) {
-      return batchProjects[currentProjectIndex]?.name || '';
-    }
-    return '';
-  }, [isBatch, batchProjects, currentProjectIndex]);
-
-  const headerStatus = useMemo(() => {
-    if (configLocked) {
-      return `构建中 · ${currentProjectIndex + 1}/${totalProjects || projects.length}`;
-    }
-    if (batchComplete && batchProjects.length > 0) {
-      const ok = batchProjects.filter((p) => p.status === 'completed').length;
-      const fail = batchProjects.filter((p) => p.status === 'failed').length;
-      return `已完成 · 成功 ${ok} · 失败 ${fail}`;
-    }
-    return '未开始';
-  }, [configLocked, batchComplete, batchProjects, currentProjectIndex, totalProjects, projects.length]);
-
-  const previewProjects = useMemo(
-    () =>
-      projects.map((p) => ({
-        name: p.name,
-        path: p.path,
-        branch: projectBranches[p.path],
-      })),
-    [projects, projectBranches],
-  );
-
-  const handleStartBuild = useCallback(() => {
-    startBatchBuild(
-      projects.map((p) => ({
-        name: p.name,
-        path: p.path,
-        branch: projectBranches[p.path],
-      })),
-    );
-  }, [projects, projectBranches, startBatchBuild]);
+  // Persist tabs list
+  useEffect(() => {
+    try {
+      localStorage.setItem('auto-build:tabs', JSON.stringify(tabs));
+    } catch { /* ignore */ }
+  }, [tabs]);
 
   const handleNewProject = useCallback(() => {
-    handleChangeProject();
-    setOpenBrowseTrigger((t) => t + 1);
-  }, [handleChangeProject]);
+    setActivePage('build');
+    const newTab: TabInfo = {
+      id: Date.now().toString(),
+      name: `Project ${tabs.length + 1}`,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }, [tabs.length]);
+
+  const handleCloseTab = useCallback((tabId: string) => {
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.id !== tabId);
+      if (next.length === 0) {
+        const fallback: TabInfo = { id: Date.now().toString(), name: 'Project 1' };
+        // Clean up old tab storage
+        localStorage.removeItem(`auto-build:tab:${tabId}:projects`);
+        localStorage.removeItem(`auto-build:tab:${tabId}:branches`);
+        setActiveTabId(fallback.id);
+        return [fallback];
+      }
+      // Clean up closed tab storage
+      localStorage.removeItem(`auto-build:tab:${tabId}:projects`);
+      localStorage.removeItem(`auto-build:tab:${tabId}:branches`);
+      return next;
+    });
+    setActiveTabId((currentActive) => {
+      if (currentActive === tabId) {
+        // Will be updated by the setTabs callback if fallback needed,
+        // otherwise pick the first remaining tab
+        const remaining = tabs.filter((t) => t.id !== tabId);
+        return remaining[0]?.id || '';
+      }
+      return currentActive;
+    });
+  }, [tabs]);
+
+  const handleTabNameChange = useCallback((tabId: string, name: string) => {
+    setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, name } : t)));
+  }, []);
 
   return (
     <ConfigProvider locale={zhCN} theme={appTheme}>
@@ -132,8 +95,7 @@ function App() {
           {/* New Project Button */}
           <button
             onClick={handleNewProject}
-            disabled={configLocked}
-            className="bg-primary-container text-on-primary-container hover:bg-inverse-primary hover:text-white transition-colors duration-150 py-sm px-md rounded text-[14px] font-semibold flex items-center justify-center gap-xs w-full mb-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-primary-container text-on-primary-container hover:bg-inverse-primary hover:text-white transition-colors duration-150 py-sm px-md rounded text-[14px] font-semibold flex items-center justify-center gap-xs w-full mb-md active:scale-95"
           >
             <span className="material-symbols-outlined text-lg">add</span>
             New Project
@@ -206,41 +168,64 @@ function App() {
             <button className="text-on-surface-variant hover:text-primary transition-colors p-xs rounded-full hover:bg-surface-container-highest">
               <span className="material-symbols-outlined">terminal</span>
             </button>
-            <span className="text-on-surface-variant text-[12px] whitespace-nowrap">{headerStatus}</span>
           </div>
         </header>
 
         {/* ── Main Content ── */}
-        <main className="ml-[240px] mt-16 flex-1 p-lg overflow-y-auto w-[calc(100%-240px)] flex justify-center">
+        <main className="ml-[240px] mt-16 flex-1 overflow-y-auto w-[calc(100%-240px)] flex flex-col">
           {activePage === 'build' && (
-            <BuildCenter
-              projects={projects}
-              pickerResetToken={pickerResetToken}
-              openBrowseTrigger={openBrowseTrigger}
-              buildConfig={buildConfig}
-              onConfigChange={setBuildConfig}
-              logs={logs}
-              batchProjects={batchProjects}
-              currentProjectIndex={currentProjectIndex}
-              totalProjects={totalProjects}
-              batchComplete={batchComplete}
-              error={error}
-              clearLogs={clearLogs}
-              cancelBuild={cancelBuild}
-              downloadProject={downloadProject}
-              downloadAll={downloadAll}
-              handleProjectSelect={handleProjectSelect}
-              handleBranchSelect={handleBranchSelect}
-              handleChangeProject={handleChangeProject}
-              handleStartBuild={handleStartBuild}
-              configLocked={configLocked}
-              allBranchesSelected={allBranchesSelected}
-              previewProjects={previewProjects}
-              currentProjectName={currentProjectName}
-            />
+            <div className="flex flex-col flex-1">
+              {/* Tab Bar */}
+              <div className="flex items-center gap-xs px-lg pt-md border-b border-outline-variant sticky top-0 bg-background z-10">
+                {tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    className={`flex items-center gap-xs px-md py-sm rounded-t-lg cursor-pointer transition-colors select-none ${
+                      activeTabId === tab.id
+                        ? 'bg-surface-container text-on-surface border-b-2 border-primary'
+                        : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest'
+                    }`}
+                    onClick={() => setActiveTabId(tab.id)}
+                  >
+                    <span className="text-[14px] font-medium whitespace-nowrap">{tab.name}</span>
+                    {tabs.length > 1 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id); }}
+                        className="ml-xs p-0.5 rounded hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface flex items-center justify-center"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">close</span>
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {/* New Tab button */}
+                <button
+                  onClick={handleNewProject}
+                  className="p-xs rounded hover:bg-surface-container-highest text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center"
+                  title="New Project"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span>
+                </button>
+              </div>
+
+              {/* Active Tab Content */}
+              <div className="flex-1 flex justify-center p-lg">
+                {tabs.map((tab) =>
+                  activeTabId === tab.id ? (
+                    <BuildCenterTab
+                      key={tab.id}
+                      tabId={tab.id}
+                      onNameChange={(name) => handleTabNameChange(tab.id, name)}
+                    />
+                  ) : null,
+                )}
+              </div>
+            </div>
           )}
           {activePage === 'settings' && (
-            <SettingsPage />
+            <div className="flex justify-center p-lg">
+              <SettingsPage />
+            </div>
           )}
         </main>
       </div>

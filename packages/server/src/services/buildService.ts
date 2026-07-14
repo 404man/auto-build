@@ -606,29 +606,52 @@ export async function runBatchBuild(
 
       const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions, installCommand, buildCommand, externalBuildIds?.[i]);
       results[i].buildId = buildId;
-      results[i].status = 'completed';
       buildIds.push(buildId);
 
-      // 获取 zip 大小
+      // 检查实际构建状态：runBuild 在失败时不抛异常，而是正常返回并设置 task.status = 'failed'
       const task = buildTasks.get(buildId);
-      if (task?.zipPath) {
-        try {
-          const stats = await stat(task.zipPath);
-          results[i].zipSize = stats.size;
-        } catch {
-          // ignore
-        }
-      }
+      const actualStatus = task?.status || 'completed';
 
-      io.to(socketId).emit('batch:progress', {
-        batchId,
-        currentIndex: i,
-        total: projects.length,
-        projectName: project.name,
-        status: 'completed',
-        buildId,
-        packageManager,
-      });
+      if (actualStatus === 'failed') {
+        results[i].status = 'failed';
+
+        io.to(socketId).emit('build:log', {
+          buildId,
+          projectName: project.name,
+          type: 'stderr',
+          data: `[auto-dist] 项目 ${project.name} 构建失败: ${task?.error || '未知错误'}\n`,
+        });
+        io.to(socketId).emit('batch:progress', {
+          batchId,
+          currentIndex: i,
+          total: projects.length,
+          projectName: project.name,
+          status: 'failed',
+          buildId,
+        });
+      } else {
+        results[i].status = 'completed';
+
+        // 获取 zip 大小
+        if (task?.zipPath) {
+          try {
+            const stats = await stat(task.zipPath);
+            results[i].zipSize = stats.size;
+          } catch {
+            // ignore
+          }
+        }
+
+        io.to(socketId).emit('batch:progress', {
+          batchId,
+          currentIndex: i,
+          total: projects.length,
+          projectName: project.name,
+          status: 'completed',
+          buildId,
+          packageManager,
+        });
+      }
     } catch (err) {
       // 构建失败，记录错误但继续下一个
       const failBuildId = externalBuildIds?.[i] || randomUUID();

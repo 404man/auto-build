@@ -9,6 +9,7 @@ import { projectRouter } from './routes/project.js';
 import { buildRouter } from './routes/build.js';
 import { dockerRouter } from './routes/docker.js';
 import { settingsRouter } from './routes/settings.js';
+import { downloadRouter } from './routes/download.js';
 import { initConfigService } from './services/configService.js';
 
 const app = new Koa();
@@ -92,6 +93,10 @@ app.use(dockerRouter.allowedMethods());
 app.use(settingsRouter.routes());
 app.use(settingsRouter.allowedMethods());
 
+// Download routes
+app.use(downloadRouter.prefix('/api/download').routes());
+app.use(downloadRouter.allowedMethods());
+
 // Socket.IO 连接事件
 io.on('connection', (socket) => {
   console.log(`[Socket.IO] Client connected: ${socket.id}`);
@@ -100,6 +105,12 @@ io.on('connection', (socket) => {
   socket.on('join:build', (buildId: string) => {
     socket.join(`build:${buildId}`);
     console.log(`[Socket.IO] Client ${socket.id} joined build:${buildId}`);
+  });
+
+  // 客户端加入下载房间，用于接收下载进度
+  socket.on('join:download', (downloadId: string) => {
+    socket.join(`download:${downloadId}`);
+    console.log(`[Socket.IO] Client ${socket.id} joined download:${downloadId}`);
   });
 
   socket.on('disconnect', () => {

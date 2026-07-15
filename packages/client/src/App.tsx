@@ -3,6 +3,7 @@ import { ConfigProvider, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import BuildCenterTab from './components/BuildCenterTab';
 import SettingsPage from './components/SettingsPage';
+import DownloadPackagePage from './components/DownloadPackagePage';
 import { appTheme } from './theme';
 import { MessageInit } from './utils/message';
 
@@ -23,7 +24,7 @@ function loadTabs(): TabInfo[] {
 }
 
 function App() {
-  const [activePage, setActivePage] = useState<'build' | 'settings'>('build');
+  const [activePage, setActivePage] = useState<'build' | 'settings' | 'download'>('build');
   const [tabs, setTabs] = useState<TabInfo[]>(loadTabs);
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     const loaded = loadTabs();
@@ -120,6 +121,17 @@ function App() {
             <a className="text-on-surface-variant hover:text-on-surface flex items-center gap-sm px-md py-sm text-[14px] font-medium transition-colors hover:bg-surface-container-highest rounded-lg active:scale-95 duration-150 cursor-not-allowed opacity-60">
               <span className="material-symbols-outlined">folder_open</span>
               Projects
+            </a>
+            <a
+              className={`rounded-lg flex items-center gap-sm px-md py-sm text-[14px] font-medium transition-colors hover:bg-surface-container-highest active:scale-95 duration-150 cursor-pointer ${
+                activePage === 'download'
+                  ? 'bg-secondary-container text-on-secondary-container'
+                  : 'text-on-surface-variant hover:text-on-surface'
+              }`}
+              onClick={(e) => { e.preventDefault(); setActivePage('download'); }}
+            >
+              <span className="material-symbols-outlined">download</span>
+              Download Package
             </a>
             <a
               className={`rounded-lg flex items-center gap-sm px-md py-sm text-[14px] font-medium transition-colors hover:bg-surface-container-highest active:scale-95 duration-150 cursor-pointer ${
@@ -223,6 +235,11 @@ function App() {
                   ) : null,
                 )}
               </div>
+            </div>
+          )}
+          {activePage === 'download' && (
+            <div className="flex justify-center p-lg">
+              <DownloadPackagePage />
             </div>
           )}
           {activePage === 'settings' && (

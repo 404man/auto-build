@@ -179,3 +179,33 @@ export const settingsApi = {
   syncFromOss: (): Promise<AxiosResponse<{ success: boolean; data: { message: string } }>> =>
     http.post('/settings/oss/sync-from'),
 };
+
+/* ---------- Download API ---------- */
+export const downloadApi = {
+  start: (data: {
+    projectPath: string;
+    socketId: string;
+    branch?: string;
+    lockfileName?: string;
+    scopes?: string;
+    registry?: string;
+  }): Promise<AxiosResponse<{ success: boolean; data: { downloadId: string } }>> =>
+    http.post('/download/start', data),
+
+  download: (downloadId: string) => {
+    window.open(`/api/download/download/${downloadId}`, '_blank');
+  },
+
+  cancel: (downloadId: string): Promise<AxiosResponse<{ success: boolean }>> =>
+    http.post(`/download/cancel/${downloadId}`),
+
+  getStatus: (downloadId: string): Promise<AxiosResponse<{
+    success: boolean;
+    data: {
+      status: string;
+      projectName?: string;
+      error?: string;
+      zipPath?: string;
+    };
+  }>> => http.get(`/download/status/${downloadId}`),
+};

@@ -8,7 +8,7 @@
 your-project/
   pnpm-lock.yaml
   offline-package-tool/
-    download-scoped-packages.js
+    download-scoped-packages.cjs
     README.md
 ```
 
@@ -35,31 +35,31 @@ offline-packages/@za/designable/designable-1.0.23.tgz
 先看将要下载哪些包：
 
 ```bash
-node offline-package-tool/download-scoped-packages.js --dry-run
+node offline-package-tool/download-scoped-packages.cjs --dry-run
 ```
 
 实际下载：
 
 ```bash
-node offline-package-tool/download-scoped-packages.js --registry=http://npm.zhonganinfo.com/
+node offline-package-tool/download-scoped-packages.cjs --registry=http://npm.zhonganinfo.com/
 ```
 
 指定输出目录：
 
 ```bash
-node offline-package-tool/download-scoped-packages.js --output-dir ./offline-packages
+node offline-package-tool/download-scoped-packages.cjs --output-dir ./offline-packages
 ```
 
 指定 lockfile：
 
 ```bash
-node offline-package-tool/download-scoped-packages.js --lockfile ./pnpm-lock.yaml
+node offline-package-tool/download-scoped-packages.cjs --lockfile ./pnpm-lock.yaml
 ```
 
 指定 scope，多个用逗号分隔：
 
 ```bash
-node offline-package-tool/download-scoped-packages.js --scopes=@za,@x-group
+node offline-package-tool/download-scoped-packages.cjs --scopes=@za,@x-group
 ```
 
 ## 默认参数

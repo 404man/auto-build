@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { collectScopedPackagesFromLockfile } = require('./download-scoped-packages');
+const { collectScopedPackagesFromLockfile } = require('./download-scoped-packages.cjs');
 
 test('collectScopedPackagesFromLockfile recursively includes only @za and @x-group transitive dependencies', () => {
   const lockfile = `

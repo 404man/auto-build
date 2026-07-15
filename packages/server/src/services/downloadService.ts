@@ -270,7 +270,7 @@ export async function runDownload(
     task.status = 'downloading';
     io.to(socketId).emit('download:status', { downloadId, status: 'downloading', projectName });
 
-    const scriptPath = resolve(__dirname, '../../../../offline-package-tool/download-scoped-packages.js');
+    const scriptPath = resolve(__dirname, '../../../../offline-package-tool/download-scoped-packages.cjs');
     const args = [
       scriptPath,
       '--lockfile', lockfilePath,

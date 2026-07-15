@@ -24,6 +24,7 @@ export interface BuildCenterProps {
   totalProjects: number;
   batchComplete: boolean;
   error: string;
+  cacheClearedAt: number;
   clearLogs: () => void;
   cancelBuild: () => void;
   downloadProject: (buildId: string) => void;
@@ -53,6 +54,7 @@ export default function BuildCenter(props: BuildCenterProps) {
     totalProjects,
     batchComplete,
     error,
+    cacheClearedAt,
     clearLogs,
     cancelBuild,
     downloadProject,
@@ -141,6 +143,7 @@ export default function BuildCenter(props: BuildCenterProps) {
                 totalProjects={totalProjects}
                 batchComplete={batchComplete}
                 error={error}
+                cacheClearedAt={cacheClearedAt}
                 onStart={handleStartBuild}
                 onCancel={cancelBuild}
                 onDownloadProject={downloadProject}

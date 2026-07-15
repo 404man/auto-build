@@ -36,6 +36,7 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
     totalProjects,
     batchComplete,
     error,
+    cacheClearedAt,
     isBatch,
   } = useBuild();
 
@@ -136,6 +137,7 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
       totalProjects={totalProjects}
       batchComplete={batchComplete}
       error={error}
+      cacheClearedAt={cacheClearedAt}
       clearLogs={clearLogs}
       cancelBuild={cancelBuild}
       downloadProject={downloadProject}

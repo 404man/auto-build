@@ -15,6 +15,7 @@ interface BuildPanelProps {
   totalProjects: number;
   batchComplete: boolean;
   error: string;
+  cacheClearedAt?: number;
   onStart: () => void;
   onCancel: () => void;
   onDownloadProject: (buildId: string) => void;
@@ -47,6 +48,7 @@ export default function BuildPanel({
   totalProjects,
   batchComplete,
   error,
+  cacheClearedAt,
   onStart,
   onCancel,
   onDownloadProject,
@@ -123,6 +125,14 @@ export default function BuildPanel({
           <div className="bg-error-container text-on-error-container rounded-lg p-sm text-sm flex items-start gap-xs">
             <span className="material-symbols-outlined text-lg shrink-0">error</span>
             <span>{error}</span>
+          </div>
+        )}
+
+        {/* Cache cleared warning */}
+        {batchComplete && completedCount > 0 && cacheClearedAt && cacheClearedAt > 0 && (
+          <div className="bg-tertiary-container text-on-tertiary-container rounded-lg p-sm text-sm flex items-start gap-xs">
+            <span className="material-symbols-outlined text-lg shrink-0">warning</span>
+            <span>缓存已清空，构建产物可能已被删除</span>
           </div>
         )}
       </div>

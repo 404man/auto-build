@@ -14,6 +14,7 @@ import {
   syncFromOss,
   type TemplateType,
 } from '../services/configService.js';
+import { setCacheClearedAt, getCacheClearedAt } from '../services/buildService.js';
 
 export const settingsRouter = new Router();
 
@@ -312,4 +313,37 @@ settingsRouter.post('/api/settings/oss/sync-from', async (ctx: any) => {
     ctx.status = 500;
     ctx.body = { success: false, error: (err as Error).message };
   }
+});
+
+// ========== 缓存管理 ==========
+
+settingsRouter.post('/api/settings/clear-artifacts', async (ctx: any) => {
+  try {
+    const { readdir, rm } = await import('node:fs/promises');
+    const { homedir } = await import('node:os');
+    const { join } = await import('node:path');
+
+    const artifactsDir = join(homedir(), '.auto-build', 'artifacts');
+    let count = 0;
+    try {
+      const files = await readdir(artifactsDir);
+      for (const file of files) {
+        await rm(join(artifactsDir, file), { recursive: true, force: true });
+        count++;
+      }
+    } catch {
+      // 目录不存在时 count 保持 0
+    }
+
+    setCacheClearedAt(Date.now());
+
+    ctx.body = { success: true, data: { message: `已清理 ${count} 个缓存文件`, count } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.get('/api/settings/cache-cleared-at', async (ctx: any) => {
+  ctx.body = { success: true, data: { cacheClearedAt: getCacheClearedAt() } };
 });

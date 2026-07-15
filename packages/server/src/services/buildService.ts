@@ -61,6 +61,18 @@ export interface BatchBuildTask {
 const buildTasks = new Map<string, BuildTask>();
 const batchBuildTasks = new Map<string, BatchBuildTask>();
 
+// ========== 缓存清理时间戳 ==========
+
+let cacheClearedAt = 0;
+
+export function getCacheClearedAt(): number {
+  return cacheClearedAt;
+}
+
+export function setCacheClearedAt(ts: number): void {
+  cacheClearedAt = ts;
+}
+
 // ========== 超时与清理配置 ==========
 
 const BUILD_TIMEOUT_MS = 10 * 60 * 1000; // 10 分钟

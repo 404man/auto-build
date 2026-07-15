@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { buildApi } from '../api';
+import { buildApi, settingsApi } from '../api';
 import type { DockerBuildOptions } from '../types/buildConfig';
 
 export type BuildStatus = 'idle' | 'installing' | 'building' | 'docker-building' | 'docker-pushing' | 'packaging' | 'completed' | 'failed' | 'cancelled';
@@ -38,6 +38,7 @@ interface UseBuildReturn {
   totalProjects: number;
   batchId: string | null;
   batchComplete: boolean;
+  cacheClearedAt: number;
   startBatchBuild: (projects: Array<{ name: string; path: string; branch?: string }>, commands?: { installCommand?: string; buildCommand?: string }, dockerOptions?: DockerBuildOptions | null) => Promise<void>;
   downloadProject: (buildId: string) => void;
   downloadAll: () => void;
@@ -65,6 +66,9 @@ export function useBuild(): UseBuildReturn {
   // Docker options (set by UI, passed to backend as-is)
   const [dockerOptions, setDockerOptions] = useState<DockerBuildOptions | null>(null);
 
+  // Cache cleared timestamp
+  const [cacheClearedAt, setCacheClearedAt] = useState(0);
+
   const socketRef = useRef<Socket | null>(null);
 
   const cleanup = useCallback(() => {
@@ -85,6 +89,11 @@ export function useBuild(): UseBuildReturn {
     setBuildId(null);
     setError('');
     setPackageManager('');
+
+    // Fetch cache cleared timestamp
+    settingsApi.getCacheClearedAt()
+      .then((res) => setCacheClearedAt(res.data.data.cacheClearedAt || 0))
+      .catch(() => {});
 
     const socket = io({ transports: ['websocket', 'polling'] });
     socketRef.current = socket;
@@ -150,6 +159,11 @@ export function useBuild(): UseBuildReturn {
     setBatchComplete(false);
     setCurrentProjectIndex(0);
     setBatchId(null);
+
+    // Fetch cache cleared timestamp
+    settingsApi.getCacheClearedAt()
+      .then((res) => setCacheClearedAt(res.data.data.cacheClearedAt || 0))
+      .catch(() => {});
 
     // Initialize project states
     setBatchProjects(
@@ -271,6 +285,7 @@ export function useBuild(): UseBuildReturn {
     setCurrentProjectIndex(0);
     setBatchId(null);
     setBatchComplete(false);
+    setCacheClearedAt(0);
   }, [cleanup]);
 
   const downloadBuild = useCallback(() => {
@@ -313,6 +328,7 @@ export function useBuild(): UseBuildReturn {
     totalProjects,
     batchId,
     batchComplete,
+    cacheClearedAt,
     startBatchBuild,
     downloadProject,
     downloadAll,

@@ -83,6 +83,7 @@ export const buildApi = {
         total: number;
         results: Array<{ projectName: string; buildId: string; status: 'pending' | 'completed' | 'failed' | 'skipped'; zipSize?: number }>;
         createdAt: number;
+        cacheClearedAt?: number;
       };
     }>(`/build/batch/${batchId}`);
   },
@@ -98,7 +99,7 @@ export const buildApi = {
   getStatus(buildId: string) {
     return http.get<{
       success: boolean;
-      data: { id: string; status: string; packageManager: string; error?: string; createdAt: string };
+      data: { id: string; status: string; packageManager: string; error?: string; createdAt: string; cacheClearedAt?: number };
     }>(`/build/status/${buildId}`);
   },
 };
@@ -178,6 +179,12 @@ export const settingsApi = {
     http.post('/settings/oss/sync-to'),
   syncFromOss: (): Promise<AxiosResponse<{ success: boolean; data: { message: string } }>> =>
     http.post('/settings/oss/sync-from'),
+
+  // 缓存管理
+  clearArtifacts: (): Promise<AxiosResponse<{ success: boolean; data: { message: string; count: number } }>> =>
+    http.post('/settings/clear-artifacts'),
+  getCacheClearedAt: (): Promise<AxiosResponse<{ success: boolean; data: { cacheClearedAt: number } }>> =>
+    http.get('/settings/cache-cleared-at'),
 };
 
 /* ---------- Download API ---------- */

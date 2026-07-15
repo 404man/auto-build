@@ -11,6 +11,7 @@ import {
   getBuildTask,
   getBatchBuildTask,
   getZipPath,
+  getCacheClearedAt,
 } from '../services/buildService.js';
 
 const buildRouter = new Router();
@@ -158,6 +159,7 @@ buildRouter.get('/status/:buildId', async (ctx: any) => {
       zipPath: task.zipPath,
       error: task.error,
       createdAt: task.createdAt,
+      cacheClearedAt: getCacheClearedAt(),
     },
   };
 });
@@ -229,6 +231,7 @@ buildRouter.get('/batch/:batchId', async (ctx: any) => {
       total: batch.projects.length,
       results: batch.results,
       createdAt: batch.createdAt,
+      cacheClearedAt: getCacheClearedAt(),
     },
   };
 });

@@ -637,6 +637,63 @@ function OssForm() {
   );
 }
 
+/* ────────────────────────── CacheManagement ────────────────────────── */
+
+function CacheManagement() {
+  const { message } = App.useApp();
+  const [clearing, setClearing] = useState(false);
+
+  const handleClear = () => {
+    Modal.confirm({
+      title: '确认清空缓存',
+      content: '此操作将清空 ~/.auto-build/artifacts/ 目录下的所有构建和下载缓存文件，不可恢复。',
+      okText: '确认清空',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setClearing(true);
+        try {
+          const res = await settingsApi.clearArtifacts();
+          message.success(res.data.data.message || '缓存已清空');
+        } catch {
+          /* interceptor handles error */
+        } finally {
+          setClearing(false);
+        }
+      },
+    });
+  };
+
+  return (
+    <div className="bg-surface-container rounded-lg border border-outline-variant overflow-hidden relative">
+      {/* top gradient bar */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-secondary" />
+
+      <div className="px-md pt-lg pb-md">
+        {/* header */}
+        <div className="flex items-center gap-sm mb-md">
+          <span className="material-symbols-outlined text-primary text-[22px]">cleaning_services</span>
+          <h3 className="text-on-surface font-body-lg font-semibold">Cache Management</h3>
+        </div>
+
+        <p className="text-on-surface-variant text-[13px] mb-lg">
+          清空 <code className="font-label-mono bg-surface-container-high px-xs rounded">~/.auto-build/artifacts/</code> 目录下的所有构建和下载缓存文件
+        </p>
+
+        <div className="flex justify-end pt-md border-t border-outline-variant">
+          <button
+            onClick={handleClear}
+            disabled={clearing}
+            className="px-md py-xs rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container-highest transition-colors text-[13px] disabled:opacity-50"
+          >
+            {clearing ? '清理中…' : '清空缓存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ────────────────────────── SettingsPage (main) ────────────────────────── */
 
 export default function SettingsPage() {
@@ -661,10 +718,11 @@ export default function SettingsPage() {
           />
         </div>
 
-        {/* Right column — Registry + OSS */}
+        {/* Right column — Registry + OSS + Cache */}
         <div className="flex flex-col gap-lg">
           <RegistryForm />
           <OssForm />
+          <CacheManagement />
         </div>
       </div>
     </div>

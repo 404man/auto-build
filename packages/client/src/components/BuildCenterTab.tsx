@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import BuildCenter from './BuildCenter';
 import { type BuildConfigState } from './BuildConfiguration';
 import { useBuild } from '../hooks/useBuild';
+import type { DockerBuildOptions } from '../types/buildConfig';
 
 interface SelectedProject {
   name: string;
@@ -95,6 +96,19 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
   );
 
   const handleStartBuild = useCallback(() => {
+    const dockerOpts: DockerBuildOptions | null = buildConfig && buildConfig.buildMode === 'docker'
+      ? {
+          buildMode: 'docker',
+          dockerfileTemplate: buildConfig.dockerfileTemplate,
+          customDockerfile: buildConfig.customDockerfile || undefined,
+          nginxConfig: buildConfig.nginxConfig,
+          customNginxConfig: buildConfig.customNginxConfig || undefined,
+          ...(buildConfig.pushEnabled
+            ? { registry: { url: buildConfig.registryUrl, imageName: buildConfig.imageName } }
+            : {}),
+        }
+      : null;
+
     startBatchBuild(
       projects.map((p) => ({
         name: p.name,
@@ -105,6 +119,7 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
         installCommand: buildConfig?.installCommand || '',
         buildCommand: buildConfig?.buildCommand || '',
       },
+      dockerOpts,
     );
   }, [projects, projectBranches, startBatchBuild, buildConfig]);
 

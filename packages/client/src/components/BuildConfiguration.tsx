@@ -44,8 +44,6 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
   const [editDockerModal, setEditDockerModal] = useState(false);
   const [editNginxModal, setEditNginxModal] = useState(false);
   const [editingTemplateContent, setEditingTemplateContent] = useState('');
-  const [editingTemplateKey, setEditingTemplateKey] = useState('');
-  const [editingTemplateType, setEditingTemplateType] = useState<'dockerfile' | 'nginx'>('dockerfile');
 
   const reloadTemplates = useCallback(async () => {
     try {
@@ -80,8 +78,6 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
   const handleEditDocker = useCallback(async () => {
     try {
       const res = await settingsApi.getDockerfileTemplate(config.dockerfileTemplate);
-      setEditingTemplateKey(config.dockerfileTemplate);
-      setEditingTemplateType('dockerfile');
       setEditingTemplateContent(res.data.data.content || '');
       setEditDockerModal(true);
     } catch {
@@ -92,40 +88,12 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
   const handleEditNginx = useCallback(async () => {
     try {
       const res = await settingsApi.getNginxConfig(config.nginxConfig);
-      setEditingTemplateKey(config.nginxConfig);
-      setEditingTemplateType('nginx');
       setEditingTemplateContent(res.data.data.content || '');
       setEditNginxModal(true);
     } catch {
       message.error('Failed to load nginx config');
     }
   }, [config.nginxConfig]);
-
-  const handleSaveDockerTemplate = useCallback(async () => {
-    try {
-      await settingsApi.updateDockerfileTemplate(editingTemplateKey, {
-        content: editingTemplateContent,
-      });
-      message.success('Template updated');
-      setEditDockerModal(false);
-      reloadTemplates();
-    } catch {
-      message.error('Failed to update template');
-    }
-  }, [editingTemplateKey, editingTemplateContent, reloadTemplates]);
-
-  const handleSaveNginxConfig = useCallback(async () => {
-    try {
-      await settingsApi.updateNginxConfig(editingTemplateKey, {
-        content: editingTemplateContent,
-      });
-      message.success('Nginx config updated');
-      setEditNginxModal(false);
-      reloadTemplates();
-    } catch {
-      message.error('Failed to update nginx config');
-    }
-  }, [editingTemplateKey, editingTemplateContent, reloadTemplates]);
 
   const updateConfig = useCallback(
     (patch: Partial<BuildConfigState>) => {
@@ -137,6 +105,18 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
     },
     [onConfigChange],
   );
+
+  const handleSaveDockerTemplate = useCallback(() => {
+    updateConfig({ customDockerfile: editingTemplateContent });
+    message.success('Dockerfile 已应用于本次构建');
+    setEditDockerModal(false);
+  }, [editingTemplateContent, updateConfig]);
+
+  const handleSaveNginxConfig = useCallback(() => {
+    updateConfig({ customNginxConfig: editingTemplateContent });
+    message.success('Nginx 配置已应用于本次构建');
+    setEditNginxModal(false);
+  }, [editingTemplateContent, updateConfig]);
 
 
 
@@ -323,7 +303,7 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
 
       {/* Dockerfile Template Edit Modal */}
       <Modal
-        title={`Edit ${editingTemplateType === 'dockerfile' ? 'Dockerfile' : 'Nginx'} Template`}
+        title="编辑 Dockerfile（仅用于本次构建）"
         open={editDockerModal}
         onCancel={() => setEditDockerModal(false)}
         onOk={handleSaveDockerTemplate}
@@ -340,7 +320,7 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
 
       {/* Nginx Config Edit Modal */}
       <Modal
-        title="Edit Nginx Template"
+        title="编辑 Nginx 配置（仅用于本次构建）"
         open={editNginxModal}
         onCancel={() => setEditNginxModal(false)}
         onOk={handleSaveNginxConfig}

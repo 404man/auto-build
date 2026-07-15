@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, rename, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createOssClient, type OssConfig } from './ossService.js';
 
 // ========== 类型定义 ==========
 
@@ -23,6 +24,7 @@ export interface Settings {
     username: string;
     secret: string;
   };
+  oss?: OssConfig;
 }
 
 // ========== 路径常量 ==========
@@ -142,11 +144,13 @@ const DEFAULT_SETTINGS: Settings = {
     username: '',
     secret: '',
   },
+  oss: undefined,
 };
 
 // ========== 内存缓存 ==========
 
 let settings: Settings = structuredClone(DEFAULT_SETTINGS);
+let ossClient: ReturnType<typeof createOssClient> = null;
 
 // ========== 内部辅助 ==========
 
@@ -170,12 +174,40 @@ function enqueueFlush(): Promise<void> {
   return flushPromise;
 }
 
+async function flushAndSyncToOss(): Promise<void> {
+  await enqueueFlush();
+  if (ossClient && settings.oss) {
+    const prefix = settings.oss.prefix || 'auto-build/templates/';
+    await syncAllTemplatesToOss(ossClient, prefix);
+  }
+}
+
 async function fileExists(p: string): Promise<boolean> {
   try {
     await access(p);
     return true;
   } catch {
     return false;
+  }
+}
+
+async function syncAllTemplatesToOss(client: NonNullable<ReturnType<typeof createOssClient>>, prefix: string): Promise<void> {
+  const { putTemplateToOss } = await import('./ossService.js');
+  for (const tpl of settings.dockerfileTemplates.filter(t => !t.builtin)) {
+    await putTemplateToOss(client, prefix, 'dockerfile', tpl);
+  }
+  for (const tpl of settings.nginxConfigs.filter(t => !t.builtin)) {
+    await putTemplateToOss(client, prefix, 'nginx', tpl);
+  }
+}
+
+async function initOssClient(): Promise<void> {
+  if (settings.oss?.accessKeyId && settings.oss?.accessKeySecret && settings.oss?.bucket && settings.oss?.region) {
+    ossClient = createOssClient(settings.oss);
+    if (ossClient) {
+      console.log('[ConfigService] OSS client initialized');
+      syncFromOss().catch(err => console.warn('[ConfigService] Initial OSS sync failed:', err));
+    }
   }
 }
 
@@ -198,6 +230,7 @@ export async function initConfigService(): Promise<void> {
       settings = structuredClone(DEFAULT_SETTINGS);
       await enqueueFlush();
     }
+    await initOssClient();
     return;
   }
 
@@ -234,7 +267,7 @@ export async function addTemplate(
   }
   const newTemplate: StoredTemplate = { ...template, builtin: false };
   arr.push(newTemplate);
-  await enqueueFlush();
+  await flushAndSyncToOss();
   return newTemplate;
 }
 
@@ -252,7 +285,7 @@ export async function updateTemplate(
 
   const updated = { ...arr[idx], ...patch };
   arr[idx] = updated;
-  await enqueueFlush();
+  await flushAndSyncToOss();
   return updated;
 }
 
@@ -266,7 +299,7 @@ export async function deleteTemplate(type: TemplateType, key: string): Promise<b
   if (arr[idx].builtin) return false;
 
   arr.splice(idx, 1);
-  await enqueueFlush();
+  await flushAndSyncToOss();
   return true;
 }
 
@@ -283,4 +316,89 @@ export function getRegistryConfig(): Settings['registry'] {
 export async function saveRegistryConfig(registry: Settings['registry']): Promise<void> {
   settings.registry = { ...registry };
   await enqueueFlush();
+}
+
+// ========== OSS 相关 API ==========
+
+export function getOssConfig(): OssConfig | null {
+  if (!settings.oss) return null;
+  return {
+    ...settings.oss,
+    accessKeySecret: settings.oss.accessKeySecret ? '***' : '',
+  };
+}
+
+export async function saveOssConfig(config: OssConfig): Promise<void> {
+  // 如果 secret 是 *** 表示未修改，保留原值
+  if (config.accessKeySecret === '***' && settings.oss?.accessKeySecret) {
+    config.accessKeySecret = settings.oss.accessKeySecret;
+  }
+  settings.oss = config;
+  await enqueueFlush();
+  // 重建 OSS 客户端
+  ossClient = createOssClient(config);
+  if (ossClient) {
+    console.log('[ConfigService] OSS client re-initialized with new config');
+  }
+}
+
+export async function testOss(): Promise<boolean> {
+  if (!ossClient) return false;
+  const { testOssConnection: testConn } = await import('./ossService.js');
+  return testConn(ossClient);
+}
+
+export async function syncToOss(): Promise<void> {
+  if (!ossClient || !settings.oss) throw new Error('OSS not configured');
+  const prefix = settings.oss.prefix || 'auto-build/templates/';
+  await syncAllTemplatesToOss(ossClient, prefix);
+}
+
+/**
+ * 合并本地用户模板与 OSS 模板：按 key 去重，OSS 优先，本地独有模板保留。
+ */
+function mergeTemplates(
+  localUser: StoredTemplate[],
+  ossTemplates: StoredTemplate[],
+): StoredTemplate[] {
+  const ossMap = new Map(ossTemplates.map(t => [t.key, t]));
+  const merged: StoredTemplate[] = [...ossTemplates];
+  for (const local of localUser) {
+    if (!ossMap.has(local.key)) {
+      merged.push(local);
+    }
+  }
+  return merged;
+}
+
+export async function syncFromOss(): Promise<void> {
+  if (!ossClient || !settings.oss) throw new Error('OSS not configured');
+  const { listTemplatesFromOss } = await import('./ossService.js');
+  const prefix = settings.oss.prefix || 'auto-build/templates/';
+
+  const dockerTemplates = await listTemplatesFromOss(ossClient, prefix, 'dockerfile');
+  const nginxTemplates = await listTemplatesFromOss(ossClient, prefix, 'nginx');
+
+  // 保留 builtin 模板，合并本地用户模板与 OSS 模板（OSS 优先，本地独有保留）
+  const localDockerUser = settings.dockerfileTemplates.filter(t => !t.builtin);
+  const localNginxUser = settings.nginxConfigs.filter(t => !t.builtin);
+  const localDockerBuiltin = settings.dockerfileTemplates.filter(t => t.builtin);
+  const localNginxBuiltin = settings.nginxConfigs.filter(t => t.builtin);
+
+  const mergedDocker = mergeTemplates(localDockerUser, dockerTemplates);
+  const mergedNginx = mergeTemplates(localNginxUser, nginxTemplates);
+
+  const dockerChanged = mergedDocker.length !== localDockerUser.length ||
+    mergedDocker.some((t, i) => t.key !== localDockerUser[i]?.key || t.content !== localDockerUser[i]?.content);
+  const nginxChanged = mergedNginx.length !== localNginxUser.length ||
+    mergedNginx.some((t, i) => t.key !== localNginxUser[i]?.key || t.content !== localNginxUser[i]?.content);
+
+  if (dockerChanged || nginxChanged) {
+    settings.dockerfileTemplates = [...localDockerBuiltin, ...mergedDocker];
+    settings.nginxConfigs = [...localNginxBuiltin, ...mergedNginx];
+    await enqueueFlush();
+    console.log(`[ConfigService] Synced from OSS: ${dockerTemplates.length} dockerfile, ${nginxTemplates.length} nginx templates (merged, ${mergedDocker.length + mergedNginx.length} total user)`);
+  } else {
+    console.log('[ConfigService] OSS sync: no changes detected');
+  }
 }

@@ -7,6 +7,11 @@ import {
   deleteTemplate,
   getRegistryConfig,
   saveRegistryConfig,
+  getOssConfig,
+  saveOssConfig,
+  testOss,
+  syncToOss,
+  syncFromOss,
   type TemplateType,
 } from '../services/configService.js';
 
@@ -226,6 +231,87 @@ settingsRouter.put('/api/settings/registry', async (ctx: any) => {
     const newSecret = (secret && secret !== '***') ? secret : current.secret;
     await saveRegistryConfig({ url, authMethod, username, secret: newSecret });
     ctx.body = { success: true, data: { url, authMethod, username, secret: '***' } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+// ========== OSS 配置 ==========
+
+settingsRouter.get('/api/settings/oss', async (ctx: any) => {
+  try {
+    const config = getOssConfig();
+    ctx.body = { success: true, data: config };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.patch('/api/settings/oss', async (ctx: any) => {
+  try {
+    const body = ctx.request.body;
+    // 字段白名单
+    const allowed: string[] = ['accessKeyId', 'accessKeySecret', 'bucket', 'region', 'endpoint', 'prefix'];
+    const patch: Record<string, any> = {};
+    for (const key of allowed) {
+      if (key in body) patch[key] = body[key];
+    }
+
+    const current = getOssConfig();
+    const merged = { ...current, ...patch };
+
+    // secret 保护：如果 patch 中 secret 是 *** 或 undefined，保留原值
+    if ((!patch.accessKeySecret || patch.accessKeySecret === '***')) {
+      if (current && current.accessKeySecret && current.accessKeySecret !== '***') {
+        merged.accessKeySecret = current.accessKeySecret;
+      } else {
+        // 首次配置时未提供 secret
+        delete merged.accessKeySecret;
+      }
+    }
+
+    // 必填字段校验
+    if (!merged.accessKeyId || !merged.bucket || !merged.region) {
+      ctx.status = 400;
+      ctx.body = { success: false, error: 'accessKeyId, bucket, region are required' };
+      return;
+    }
+
+    await saveOssConfig(merged as any);
+    const updated = getOssConfig();
+    ctx.body = { success: true, data: updated };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.post('/api/settings/oss/test', async (ctx: any) => {
+  try {
+    const connected = await testOss();
+    ctx.body = { success: true, data: { connected, message: connected ? 'OSS 连接成功' : 'OSS 连接失败' } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.post('/api/settings/oss/sync-to', async (ctx: any) => {
+  try {
+    await syncToOss();
+    ctx.body = { success: true, data: { message: 'Templates synced to OSS' } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.post('/api/settings/oss/sync-from', async (ctx: any) => {
+  try {
+    await syncFromOss();
+    ctx.body = { success: true, data: { message: 'Templates synced from OSS' } };
   } catch (err) {
     ctx.status = 500;
     ctx.body = { success: false, error: (err as Error).message };

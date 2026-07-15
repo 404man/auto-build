@@ -64,9 +64,20 @@ export interface RegistrySettings {
   secret?: string;  // 读取时脱敏为 ***
 }
 
+/** OSS 配置 */
+export interface OssSettings {
+  accessKeyId: string;
+  accessKeySecret: string;
+  bucket: string;
+  region: string;
+  endpoint?: string;
+  prefix?: string;
+}
+
 /** Settings 全局配置概览 */
 export interface SettingsData {
   dockerfileTemplates: TemplateListItem[];
   nginxConfigs: TemplateListItem[];
   registry: RegistrySettings;
+  oss?: OssSettings;
 }

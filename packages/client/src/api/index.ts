@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { message } from 'antd';
-import type { DockerTemplate, DockerTemplateDetail, NginxConfig, NginxConfigDetail, DockerBuildOptions, SettingsData, StoredTemplate, TemplateListItem, RegistrySettings } from '../types/buildConfig';
+import type { DockerTemplate, DockerTemplateDetail, NginxConfig, NginxConfigDetail, DockerBuildOptions, SettingsData, StoredTemplate, TemplateListItem, RegistrySettings, OssSettings } from '../types/buildConfig';
 import type { AxiosResponse } from 'axios';
 
 const http = axios.create({ baseURL: '/api' });
@@ -166,4 +166,16 @@ export const settingsApi = {
     http.get('/settings/registry'),
   updateRegistry: (data: RegistrySettings): Promise<AxiosResponse<{ success: boolean; data: RegistrySettings }>> =>
     http.put('/settings/registry', data),
+
+  // OSS
+  getOss: (): Promise<AxiosResponse<{ success: boolean; data: OssSettings }>> =>
+    http.get('/settings/oss'),
+  updateOss: (data: Partial<OssSettings>): Promise<AxiosResponse<{ success: boolean; data: OssSettings }>> =>
+    http.patch('/settings/oss', data),
+  testOss: (): Promise<AxiosResponse<{ success: boolean; data: { message: string } }>> =>
+    http.post('/settings/oss/test'),
+  syncToOss: (): Promise<AxiosResponse<{ success: boolean; data: { message: string } }>> =>
+    http.post('/settings/oss/sync-to'),
+  syncFromOss: (): Promise<AxiosResponse<{ success: boolean; data: { message: string } }>> =>
+    http.post('/settings/oss/sync-from'),
 };

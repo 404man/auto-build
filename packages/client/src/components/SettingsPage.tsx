@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Modal, Input, Select, message, Spin } from 'antd';
 import { settingsApi } from '../api';
-import type { TemplateListItem, StoredTemplate, RegistrySettings } from '../types/buildConfig';
+import type { TemplateListItem, StoredTemplate, RegistrySettings, OssSettings } from '../types/buildConfig';
 
 /* ────────────────────────── Constants ────────────────────────── */
 
@@ -254,6 +254,7 @@ function RegistryForm() {
     settingsApi.getRegistry()
       .then((res) => {
         const d = res.data.data;
+        if (!d) return; // Registry 未配置，保持空表单
         setForm({ url: d.url || '', authMethod: d.authMethod || 'token', username: d.username || '' });
       })
       .catch(() => message.error('加载 Registry 配置失败'))
@@ -279,6 +280,7 @@ function RegistryForm() {
     settingsApi.getRegistry()
       .then((res) => {
         const d = res.data.data;
+        if (!d) return;
         setForm({ url: d.url || '', authMethod: d.authMethod || 'token', username: d.username || '' });
         setSecret('');
       })
@@ -386,6 +388,248 @@ function RegistryForm() {
   );
 }
 
+/* ────────────────────────── OssForm ────────────────────────── */
+
+function OssForm() {
+  const [form, setForm] = useState<OssSettings>({
+    accessKeyId: '',
+    accessKeySecret: '',
+    bucket: '',
+    region: '',
+    endpoint: '',
+    prefix: 'auto-build/templates/',
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [syncingTo, setSyncingTo] = useState(false);
+  const [syncingFrom, setSyncingFrom] = useState(false);
+
+  useEffect(() => {
+    settingsApi.getOss()
+      .then((res) => {
+        const d = res.data.data;
+        if (!d) return; // OSS 未配置，保持空表单
+        setForm({
+          accessKeyId: d.accessKeyId || '',
+          accessKeySecret: d.accessKeySecret || '',
+          bucket: d.bucket || '',
+          region: d.region || '',
+          endpoint: d.endpoint || '',
+          prefix: d.prefix || 'auto-build/templates/',
+        });
+      })
+      .catch(() => message.error('加载 OSS 配置失败'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const update = <K extends keyof OssSettings>(key: K, val: OssSettings[K]) =>
+    setForm((prev) => ({ ...prev, [key]: val }));
+
+  const reload = () => {
+    settingsApi.getOss()
+      .then((res) => {
+        const d = res.data.data;
+        if (!d) return;
+        setForm({
+          accessKeyId: d.accessKeyId || '',
+          accessKeySecret: d.accessKeySecret || '',
+          bucket: d.bucket || '',
+          region: d.region || '',
+          endpoint: d.endpoint || '',
+          prefix: d.prefix || 'auto-build/templates/',
+        });
+      })
+      .catch(() => message.error('重新加载 OSS 配置失败'));
+  };
+
+  const handleSave = async () => {
+    if (!form.region.trim()) return message.warning('请填写 Region');
+    if (!form.bucket.trim()) return message.warning('请填写 Bucket');
+    if (!form.accessKeyId.trim()) return message.warning('请填写 AccessKey ID');
+    setSaving(true);
+    try {
+      const data: Partial<OssSettings> = {
+        region: form.region.trim(),
+        bucket: form.bucket.trim(),
+        accessKeyId: form.accessKeyId.trim(),
+        endpoint: form.endpoint?.trim() || undefined,
+        prefix: form.prefix?.trim() || undefined,
+      };
+      // 仅在用户输入新值时发送 secret
+      if (form.accessKeySecret && form.accessKeySecret !== '***') {
+        data.accessKeySecret = form.accessKeySecret;
+      }
+      await settingsApi.updateOss(data);
+      message.success('OSS 配置已保存');
+      reload();
+    } catch { /* interceptor */ } finally { setSaving(false); }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await settingsApi.testOss();
+      message.success(res.data.data.message || '连接成功');
+    } catch { /* interceptor */ } finally { setTesting(false); }
+  };
+
+  const handleSyncTo = async () => {
+    setSyncingTo(true);
+    try {
+      const res = await settingsApi.syncToOss();
+      message.success(res.data.data.message || '推送成功');
+    } catch { /* interceptor */ } finally { setSyncingTo(false); }
+  };
+
+  const handleSyncFrom = async () => {
+    setSyncingFrom(true);
+    try {
+      const res = await settingsApi.syncFromOss();
+      message.success(res.data.data.message || '拉取成功');
+    } catch { /* interceptor */ } finally { setSyncingFrom(false); }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-surface-container rounded-lg border border-outline-variant p-lg text-center">
+        <Spin /> <span className="text-on-surface-variant text-[13px] ml-sm">加载中…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-surface-container rounded-lg border border-outline-variant overflow-hidden relative">
+      {/* top gradient bar */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-secondary" />
+
+      <div className="px-md pt-lg pb-md">
+        {/* header */}
+        <div className="flex items-center gap-sm mb-lg">
+          <span className="material-symbols-outlined text-primary text-[22px]">cloud_sync</span>
+          <h3 className="text-on-surface font-body-lg font-semibold">OSS Configuration</h3>
+        </div>
+
+        <div className="flex flex-col gap-md">
+          {/* Region */}
+          <div>
+            <label className="font-label-mono text-label-mono text-on-surface-variant block mb-xs">
+              Region <span className="text-error">*</span>
+            </label>
+            <Input
+              value={form.region}
+              onChange={(e) => update('region', e.target.value)}
+              placeholder="oss-cn-hangzhou"
+              className="font-label-mono!"
+            />
+          </div>
+
+          {/* Bucket */}
+          <div>
+            <label className="font-label-mono text-label-mono text-on-surface-variant block mb-xs">
+              Bucket <span className="text-error">*</span>
+            </label>
+            <Input
+              value={form.bucket}
+              onChange={(e) => update('bucket', e.target.value)}
+              placeholder="my-bucket"
+              className="font-label-mono!"
+            />
+          </div>
+
+          {/* AccessKey ID */}
+          <div>
+            <label className="font-label-mono text-label-mono text-on-surface-variant block mb-xs">
+              AccessKey ID <span className="text-error">*</span>
+            </label>
+            <Input
+              value={form.accessKeyId}
+              onChange={(e) => update('accessKeyId', e.target.value)}
+              placeholder="LTAI5t..."
+              className="font-label-mono!"
+            />
+          </div>
+
+          {/* AccessKey Secret */}
+          <div>
+            <label className="font-label-mono text-label-mono text-on-surface-variant block mb-xs">AccessKey Secret</label>
+            <Input.Password
+              value={form.accessKeySecret}
+              onChange={(e) => update('accessKeySecret', e.target.value)}
+              placeholder="***"
+              iconRender={(visible) => (
+                <span className="material-symbols-outlined text-[16px] cursor-pointer text-on-surface-variant">
+                  {visible ? 'visibility_off' : 'visibility'}
+                </span>
+              )}
+            />
+            <p className="text-on-surface-variant text-[11px] mt-xs flex items-center gap-xs">
+              <span className="material-symbols-outlined text-[12px]">lock</span>
+              Leave blank to keep existing secret unchanged.
+            </p>
+          </div>
+
+          {/* Endpoint */}
+          <div>
+            <label className="font-label-mono text-label-mono text-on-surface-variant block mb-xs">Endpoint <span className="text-on-surface-variant text-[11px]">(optional)</span></label>
+            <Input
+              value={form.endpoint}
+              onChange={(e) => update('endpoint', e.target.value)}
+              placeholder="oss-cn-hangzhou.aliyuncs.com"
+              className="font-label-mono!"
+            />
+          </div>
+
+          {/* Prefix */}
+          <div>
+            <label className="font-label-mono text-label-mono text-on-surface-variant block mb-xs">Prefix <span className="text-on-surface-variant text-[11px]">(optional)</span></label>
+            <Input
+              value={form.prefix}
+              onChange={(e) => update('prefix', e.target.value)}
+              placeholder="auto-build/templates/"
+              className="font-label-mono!"
+            />
+          </div>
+        </div>
+
+        {/* action buttons */}
+        <div className="flex flex-wrap justify-between gap-sm mt-lg pt-md border-t border-outline-variant">
+          <div className="flex gap-sm">
+            <button
+              onClick={handleTest}
+              disabled={testing}
+              className="px-md py-xs rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container-highest transition-colors text-[13px] disabled:opacity-50"
+            >
+              {testing ? '测试中…' : '测试连接'}
+            </button>
+            <button
+              onClick={handleSyncTo}
+              disabled={syncingTo}
+              className="px-md py-xs rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container-highest transition-colors text-[13px] disabled:opacity-50"
+            >
+              {syncingTo ? '推送中…' : '推送到 OSS'}
+            </button>
+            <button
+              onClick={handleSyncFrom}
+              disabled={syncingFrom}
+              className="px-md py-xs rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container-highest transition-colors text-[13px] disabled:opacity-50"
+            >
+              {syncingFrom ? '拉取中…' : '从 OSS 拉取'}
+            </button>
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-primary-container hover:bg-primary-container/80 text-on-primary-container px-md py-xs rounded-md transition-colors text-[13px] font-medium disabled:opacity-50"
+          >
+            {saving ? '保存中…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ────────────────────────── SettingsPage (main) ────────────────────────── */
 
 export default function SettingsPage() {
@@ -410,9 +654,10 @@ export default function SettingsPage() {
           />
         </div>
 
-        {/* Right column — Registry */}
-        <div>
+        {/* Right column — Registry + OSS */}
+        <div className="flex flex-col gap-lg">
           <RegistryForm />
+          <OssForm />
         </div>
       </div>
     </div>

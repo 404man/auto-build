@@ -350,6 +350,21 @@ export async function runBuild(
     }
     onOutput('stdout', `[auto-dist] 开始执行 ${installCmd.command} ${installCmd.args.join(' ')}...\n`);
 
+    // 在 install 前备份 lock 文件，避免 install 过程中被修改
+    const lockfileName = packageManager === 'npm' ? 'package-lock.json'
+      : packageManager === 'yarn' ? 'yarn.lock' : 'pnpm-lock.yaml';
+    const lockfilePath = join(buildDir, lockfileName);
+    const lockfileBackupPath = lockfilePath + '.bak';
+    let hasLockfileBackup = false;
+    try {
+      await access(lockfilePath);
+      await copyFile(lockfilePath, lockfileBackupPath);
+      hasLockfileBackup = true;
+      onOutput('stdout', `[auto-dist] 已备份 lock 文件: ${lockfileName}\n`);
+    } catch {
+      // lock 文件不存在或备份失败，忽略
+    }
+
     // 解析 .npmrc 中的 registry 配置，通过环境变量显式传递给子进程
     // 解决 pnpm 在 worktree 中不读取项目 .npmrc 导致私有 registry 配置丢失的问题
     let npmRegistry: string | undefined;
@@ -367,6 +382,17 @@ export async function runBuild(
     const installSpawn = spawnCommand(installCmd.command, installCmd.args, buildDir, onOutput, installEnv);
     task.process = installSpawn.child;
     const installResult = await installSpawn.exitPromise;
+
+    // install 后恢复 lock 文件，确保后续流程使用原始 lock 文件
+    if (hasLockfileBackup) {
+      try {
+        await copyFile(lockfileBackupPath, lockfilePath);
+        await unlink(lockfileBackupPath);
+        onOutput('stdout', `[auto-dist] 已恢复 lock 文件: ${lockfileName}\n`);
+      } catch {
+        onOutput('stdout', `[auto-dist] 恢复 lock 文件失败，继续使用 install 后的 lock 文件\n`);
+      }
+    }
 
     if (installResult.code !== 0) {
       task.status = 'failed';

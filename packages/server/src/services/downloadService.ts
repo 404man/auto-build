@@ -197,6 +197,7 @@ export async function runDownload(
   };
 
   let worktreePath: string | undefined;
+  let registry: string | undefined = options?.registry;
 
   try {
     // Step 0: 确定工作目录（可选 worktree 隔离）
@@ -237,6 +238,42 @@ export async function runDownload(
       if (copiedCount === 0) {
         throw new Error('没有成功复制任何必要文件到 worktree，请检查项目配置');
       }
+
+      // 解析 .npmrc 获取 registry（提前解析，供 lockfile 重新生成使用）
+      if (!registry) {
+        try {
+          const npmrcPath = join(workDir, '.npmrc');
+          const npmrcContent = await readFile(npmrcPath, 'utf-8');
+          const registryMatch = npmrcContent.match(/^registry\s*=\s*(.+)$/m);
+          if (registryMatch) {
+            registry = registryMatch[1].trim();
+            onOutput('stdout', `[download] 检测到 .npmrc registry: ${registry}\n`);
+          }
+        } catch { /* 无 .npmrc 或读取失败，忽略 */ }
+      }
+
+      // 复制 lockfile 后，重新生成以匹配当前分支的 package.json
+      try {
+        onOutput('stdout', `[download] 重新生成 lockfile 以匹配当前分支...\n`);
+        await new Promise<void>((resolve, reject) => {
+          const p = spawn('pnpm', ['install', '--lockfile-only'], {
+            cwd: workDir,
+            env: { ...process.env, ...(registry ? { NPM_CONFIG_REGISTRY: registry } : {}) },
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          let stderr = '';
+          p.stdout?.on('data', (d: Buffer) => onOutput('stdout', d.toString()));
+          p.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); onOutput('stderr', d.toString()); });
+          p.on('close', (code: number | null) => {
+            if (code === 0) resolve();
+            else reject(new Error(`pnpm install --lockfile-only failed (exit ${code}): ${stderr}`));
+          });
+          p.on('error', reject);
+        });
+        onOutput('stdout', `[download] lockfile 已重新生成（匹配当前分支）\n`);
+      } catch (err) {
+        onOutput('stdout', `[download] 重新生成 lockfile 失败: ${(err as Error).message}，使用复制的 lockfile\n`);
+      }
     }
 
     // Step 1: 确定 lockfile 路径并验证
@@ -248,8 +285,7 @@ export async function runDownload(
     }
     onOutput('stdout', `[download] 使用 lockfile: ${lockfilePath}\n`);
 
-    // Step 2: 解析 .npmrc 获取 registry
-    let registry: string | undefined = options?.registry;
+    // Step 2: .npmrc registry 已在 worktree 分支块中提前解析，此处仅作兜底
     if (!registry) {
       try {
         const npmrcPath = join(workDir, '.npmrc');

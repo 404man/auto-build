@@ -342,8 +342,8 @@ export async function saveOssConfig(config: OssConfig): Promise<void> {
   }
 }
 
-export async function testOss(): Promise<boolean> {
-  if (!ossClient) return false;
+export async function testOss(): Promise<{ connected: boolean; error?: string }> {
+  if (!ossClient) return { connected: false, error: 'OSS client not initialized. Please save config first.' };
   const { testOssConnection: testConn } = await import('./ossService.js');
   return testConn(ossClient);
 }

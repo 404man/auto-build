@@ -172,7 +172,7 @@ export const settingsApi = {
     http.get('/settings/oss'),
   updateOss: (data: Partial<OssSettings>): Promise<AxiosResponse<{ success: boolean; data: OssSettings }>> =>
     http.patch('/settings/oss', data),
-  testOss: (): Promise<AxiosResponse<{ success: boolean; data: { message: string } }>> =>
+  testOss: (): Promise<AxiosResponse<{ success: boolean; data: { connected: boolean; message: string } }>> =>
     http.post('/settings/oss/test'),
   syncToOss: (): Promise<AxiosResponse<{ success: boolean; data: { message: string } }>> =>
     http.post('/settings/oss/sync-to'),

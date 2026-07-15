@@ -137,13 +137,14 @@ export async function deleteTemplateFromOss(
 /**
  * 测试 OSS 连接是否正常
  */
-export async function testOssConnection(client: OSS): Promise<boolean> {
+export async function testOssConnection(client: OSS): Promise<{ connected: boolean; error?: string }> {
   try {
     const q: OSS.ListObjectsQuery = { 'max-keys': 1 };
     await client.list(q, {});
-    return true;
-  } catch (e) {
+    return { connected: true };
+  } catch (e: any) {
     console.warn(`[OssService] testOssConnection 失败:`, e);
-    return false;
+    const error = e?.code || e?.message || 'Unknown error';
+    return { connected: false, error };
   }
 }

@@ -290,8 +290,14 @@ settingsRouter.patch('/api/settings/oss', async (ctx: any) => {
 
 settingsRouter.post('/api/settings/oss/test', async (ctx: any) => {
   try {
-    const connected = await testOss();
-    ctx.body = { success: true, data: { connected, message: connected ? 'OSS 连接成功' : 'OSS 连接失败' } };
+    const result = await testOss();
+    ctx.body = {
+      success: true,
+      data: {
+        connected: result.connected,
+        message: result.connected ? 'OSS 连接成功' : `OSS 连接失败: ${result.error}`,
+      },
+    };
   } catch (err) {
     ctx.status = 500;
     ctx.body = { success: false, error: (err as Error).message };

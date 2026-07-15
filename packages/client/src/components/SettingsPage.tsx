@@ -474,7 +474,12 @@ function OssForm() {
     setTesting(true);
     try {
       const res = await settingsApi.testOss();
-      message.success(res.data.data.message || '连接成功');
+      const { connected, message: ossMsg } = res.data.data;
+      if (connected) {
+        message.success(ossMsg || '连接成功');
+      } else {
+        message.error(ossMsg || '连接失败');
+      }
     } catch { /* interceptor */ } finally { setTesting(false); }
   };
 

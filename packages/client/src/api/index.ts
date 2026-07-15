@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { message } from 'antd';
+import { getGlobalMessage } from '../utils/message';
 import type { DockerTemplate, DockerTemplateDetail, NginxConfig, NginxConfigDetail, DockerBuildOptions, SettingsData, StoredTemplate, TemplateListItem, RegistrySettings, OssSettings } from '../types/buildConfig';
 import type { AxiosResponse } from 'axios';
 
@@ -10,7 +10,7 @@ http.interceptors.response.use(
   (res) => res,
   (err) => {
     const msg = err?.response?.data?.error || err?.message || '请求失败';
-    message.error(msg);
+    getGlobalMessage()?.error(msg);
     return Promise.reject(err);
   },
 );

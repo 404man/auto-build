@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import BuildCenterTab from './components/BuildCenterTab';
 import SettingsPage from './components/SettingsPage';
 import { appTheme } from './theme';
+import { MessageInit } from './utils/message';
 
 interface TabInfo {
   id: string;
@@ -79,6 +80,8 @@ function App() {
 
   return (
     <ConfigProvider locale={zhCN} theme={appTheme}>
+      <AntdApp>
+        <MessageInit />
       <div className="bg-background text-on-surface antialiased overflow-hidden flex h-screen" style={{ fontFamily: 'Inter, sans-serif' }}>
 
         {/* ── SideNavBar (240px fixed) ── */}
@@ -229,6 +232,7 @@ function App() {
           )}
         </main>
       </div>
+      </AntdApp>
     </ConfigProvider>
   );
 }

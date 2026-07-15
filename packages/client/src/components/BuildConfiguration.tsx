@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Radio, Select, Switch, Input, Modal, message } from 'antd';
+import { Radio, Select, Switch, Input, Modal, App } from 'antd';
 import { settingsApi } from '../api';
 import type { TemplateListItem } from '../types/buildConfig';
 
@@ -23,6 +23,7 @@ interface BuildConfigurationProps {
 
 
 export function BuildConfiguration({ config: _externalConfig, onConfigChange }: BuildConfigurationProps) {
+  const { message } = App.useApp();
   const [config, setConfig] = useState<BuildConfigState>({
     buildMode: 'static',
     dockerfileTemplate: 'node',

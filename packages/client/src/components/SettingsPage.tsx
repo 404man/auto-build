@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Modal, Input, Select, message, Spin } from 'antd';
+import { Modal, Input, Select, App, Spin } from 'antd';
 import { settingsApi } from '../api';
 import type { TemplateListItem, StoredTemplate, RegistrySettings, OssSettings } from '../types/buildConfig';
 
@@ -25,6 +25,7 @@ interface TemplateEditorModalProps {
 }
 
 function TemplateEditorModal({ open, type, editingKey, onClose, onSaved }: TemplateEditorModalProps) {
+  const { message } = App.useApp();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
@@ -133,6 +134,7 @@ interface TemplateCardProps {
 }
 
 function TemplateCard({ type, title, subtitle, iconName }: TemplateCardProps) {
+  const { message } = App.useApp();
   const [items, setItems] = useState<TemplateListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -244,6 +246,7 @@ function TemplateCard({ type, title, subtitle, iconName }: TemplateCardProps) {
 /* ────────────────────────── RegistryForm ────────────────────────── */
 
 function RegistryForm() {
+  const { message } = App.useApp();
   const [form, setForm] = useState<RegistrySettings>({ url: '', authMethod: 'token', username: '' });
   const [secret, setSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -391,6 +394,7 @@ function RegistryForm() {
 /* ────────────────────────── OssForm ────────────────────────── */
 
 function OssForm() {
+  const { message } = App.useApp();
   const [form, setForm] = useState<OssSettings>({
     accessKeyId: '',
     accessKeySecret: '',

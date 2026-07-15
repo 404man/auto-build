@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Input, Button, Select, Space, Modal, List, Tag, message } from 'antd';
+import { Input, Button, Select, Space, Modal, List, Tag, App } from 'antd';
 import { FolderOutlined, FolderOpenOutlined, SearchOutlined } from '@ant-design/icons';
 import { directoryApi } from '../api';
 
@@ -24,6 +24,7 @@ interface DirectoryPickerProps {
 }
 
 export default function DirectoryPicker({ onProjectSelect, disabled = false, resetToken, openBrowseTrigger }: DirectoryPickerProps) {
+  const { message } = App.useApp();
   const [parentPath, setParentPath] = useState('');
   const [scanning, setScanning] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);

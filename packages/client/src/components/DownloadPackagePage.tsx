@@ -76,6 +76,7 @@ export default function DownloadPackagePage() {
             }}
             disabled={!isIdle}
             resetToken={resetToken}
+            singleSelect
           />
 
           {/* Section 2: Select Branches */}

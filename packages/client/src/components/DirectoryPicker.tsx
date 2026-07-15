@@ -21,9 +21,11 @@ interface DirectoryPickerProps {
   resetToken?: number;
   /** Bump this value to programmatically open the browse modal (e.g. from "New Project" button). */
   openBrowseTrigger?: number;
+  /** When true, only allow selecting a single project. */
+  singleSelect?: boolean;
 }
 
-export default function DirectoryPicker({ onProjectSelect, disabled = false, resetToken, openBrowseTrigger }: DirectoryPickerProps) {
+export default function DirectoryPicker({ onProjectSelect, disabled = false, resetToken, openBrowseTrigger, singleSelect = false }: DirectoryPickerProps) {
   const { message } = App.useApp();
   const [parentPath, setParentPath] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -125,9 +127,10 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
     doScan(parentPath);
   };
 
-  const handleSelect = (values: string[]) => {
-    setSelectedPaths(values);
-    const selected = values
+  const handleSelect = (values: string | string[]) => {
+    const arr = Array.isArray(values) ? values : [values];
+    setSelectedPaths(arr);
+    const selected = arr
       .map((v) => projects.find((p) => p.path === v))
       .filter((p): p is ProjectInfo => !!p)
       .map((p) => ({ name: p.name, path: p.path }));
@@ -220,10 +223,10 @@ export default function DirectoryPicker({ onProjectSelect, disabled = false, res
             <div className="flex flex-col gap-xs">
               <label className="font-label-mono text-label-mono text-on-surface-variant">Target Projects</label>
               <Select
-                mode="multiple"
-                placeholder="选择项目（可多选）"
+                mode={singleSelect ? undefined : 'multiple'}
+                placeholder={singleSelect ? '选择项目' : '选择项目（可多选）'}
                 style={{ width: '100%' }}
-                value={selectedPaths}
+                value={singleSelect ? (selectedPaths[0] ?? undefined) : selectedPaths}
                 onChange={handleSelect}
                 disabled={disabled}
                 options={projects.map((p) => ({

@@ -57,15 +57,15 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
     } catch {
       // 降级：使用内置默认选项
       setDockerTemplates([
-        { key: 'node', name: 'Node.js (Standard)', description: 'Node.js 18 Alpine', builtin: true },
-        { key: 'react-nginx', name: 'React (Nginx)', description: 'Multi-stage build', builtin: true },
-        { key: 'python-flask', name: 'Python (Flask)', description: 'Python 3.11 slim', builtin: true },
-        { key: 'custom', name: 'Custom', description: 'Custom Dockerfile', builtin: true },
+        { key: 'node', name: 'Node.js (Standard)', description: 'Node.js 18 Alpine' },
+        { key: 'react-nginx', name: 'React (Nginx)', description: 'Multi-stage build' },
+        { key: 'python-flask', name: 'Python (Flask)', description: 'Python 3.11 slim' },
+        { key: 'custom', name: 'Custom', description: 'Custom Dockerfile' },
       ]);
       setNginxTemplates([
-        { key: 'standard-spa', name: 'Standard SPA', description: 'try_files fallback', builtin: true },
-        { key: 'reverse-proxy', name: 'Reverse Proxy', description: 'Frontend + API proxy', builtin: true },
-        { key: 'custom', name: 'Custom', description: 'Custom Nginx config', builtin: true },
+        { key: 'standard-spa', name: 'Standard SPA', description: 'try_files fallback' },
+        { key: 'reverse-proxy', name: 'Reverse Proxy', description: 'Frontend + API proxy' },
+        { key: 'custom', name: 'Custom', description: 'Custom Nginx config' },
       ]);
     } finally {
       setTemplatesLoading(false);

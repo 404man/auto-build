@@ -10,7 +10,6 @@ export interface StoredTemplate {
   name: string;
   description: string;
   content: string;
-  builtin: boolean;
 }
 
 export type TemplateType = 'dockerfile' | 'nginx';
@@ -48,7 +47,6 @@ COPY . .
 RUN npm run build
 EXPOSE 3000
 CMD ["npm", "start"]`,
-    builtin: true,
   },
   {
     key: 'react-nginx',
@@ -66,7 +64,6 @@ COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]`,
-    builtin: true,
   },
   {
     key: 'python-flask',
@@ -79,14 +76,12 @@ RUN pip install -r requirements.txt
 COPY . .
 EXPOSE 5000
 CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]`,
-    builtin: true,
   },
   {
     key: 'custom',
     name: 'Custom',
     description: 'Provide your own Dockerfile',
     content: '',
-    builtin: true,
   },
 ];
 
@@ -104,7 +99,6 @@ const BUILTIN_NGINX_CONFIGS: StoredTemplate[] = [
         try_files $uri $uri/ /index.html;
     }
 }`,
-    builtin: true,
   },
   {
     key: 'reverse-proxy',
@@ -124,14 +118,12 @@ const BUILTIN_NGINX_CONFIGS: StoredTemplate[] = [
         proxy_set_header X-Real-IP $remote_addr;
     }
 }`,
-    builtin: true,
   },
   {
     key: 'custom',
     name: 'Custom',
     description: 'Provide your own Nginx configuration',
     content: '',
-    builtin: true,
   },
 ];
 
@@ -193,10 +185,10 @@ async function fileExists(p: string): Promise<boolean> {
 
 async function syncAllTemplatesToOss(client: NonNullable<ReturnType<typeof createOssClient>>, prefix: string): Promise<void> {
   const { putTemplateToOss } = await import('./ossService.js');
-  for (const tpl of settings.dockerfileTemplates.filter(t => !t.builtin)) {
+  for (const tpl of settings.dockerfileTemplates) {
     await putTemplateToOss(client, prefix, 'dockerfile', tpl);
   }
-  for (const tpl of settings.nginxConfigs.filter(t => !t.builtin)) {
+  for (const tpl of settings.nginxConfigs) {
     await putTemplateToOss(client, prefix, 'nginx', tpl);
   }
 }
@@ -255,29 +247,28 @@ export function getTemplate(type: TemplateType, key: string): StoredTemplate | u
 }
 
 /**
- * 新增模板，key 不可重复，builtin 由系统控制
+ * 新增模板，key 不可重复
  */
 export async function addTemplate(
   type: TemplateType,
-  template: Omit<StoredTemplate, 'builtin'>,
+  template: StoredTemplate,
 ): Promise<StoredTemplate> {
   const arr = getTemplatesArray(type);
   if (arr.some((t) => t.key === template.key)) {
     throw new Error(`Template key "${template.key}" already exists`);
   }
-  const newTemplate: StoredTemplate = { ...template, builtin: false };
-  arr.push(newTemplate);
+  arr.push(template);
   await flushAndSyncToOss();
-  return newTemplate;
+  return template;
 }
 
 /**
- * 更新模板（不可修改 key 和 builtin）
+ * 更新模板（不可修改 key）
  */
 export async function updateTemplate(
   type: TemplateType,
   key: string,
-  patch: Partial<Omit<StoredTemplate, 'key' | 'builtin'>>,
+  patch: Partial<Omit<StoredTemplate, 'key'>>,
 ): Promise<StoredTemplate | undefined> {
   const arr = getTemplatesArray(type);
   const idx = arr.findIndex((t) => t.key === key);
@@ -290,13 +281,12 @@ export async function updateTemplate(
 }
 
 /**
- * 删除模板，builtin 模板不可删除
+ * 删除模板
  */
 export async function deleteTemplate(type: TemplateType, key: string): Promise<boolean> {
   const arr = getTemplatesArray(type);
   const idx = arr.findIndex((t) => t.key === key);
   if (idx === -1) return false;
-  if (arr[idx].builtin) return false;
 
   arr.splice(idx, 1);
   await flushAndSyncToOss();
@@ -379,25 +369,20 @@ export async function syncFromOss(): Promise<void> {
   const dockerTemplates = await listTemplatesFromOss(ossClient, prefix, 'dockerfile');
   const nginxTemplates = await listTemplatesFromOss(ossClient, prefix, 'nginx');
 
-  // 保留 builtin 模板，合并本地用户模板与 OSS 模板（OSS 优先，本地独有保留）
-  const localDockerUser = settings.dockerfileTemplates.filter(t => !t.builtin);
-  const localNginxUser = settings.nginxConfigs.filter(t => !t.builtin);
-  const localDockerBuiltin = settings.dockerfileTemplates.filter(t => t.builtin);
-  const localNginxBuiltin = settings.nginxConfigs.filter(t => t.builtin);
+  // 合并本地所有模板与 OSS 模板（OSS 优先覆盖，本地独有保留）
+  const mergedDocker = mergeTemplates(settings.dockerfileTemplates, dockerTemplates);
+  const mergedNginx = mergeTemplates(settings.nginxConfigs, nginxTemplates);
 
-  const mergedDocker = mergeTemplates(localDockerUser, dockerTemplates);
-  const mergedNginx = mergeTemplates(localNginxUser, nginxTemplates);
-
-  const dockerChanged = mergedDocker.length !== localDockerUser.length ||
-    mergedDocker.some((t, i) => t.key !== localDockerUser[i]?.key || t.content !== localDockerUser[i]?.content);
-  const nginxChanged = mergedNginx.length !== localNginxUser.length ||
-    mergedNginx.some((t, i) => t.key !== localNginxUser[i]?.key || t.content !== localNginxUser[i]?.content);
+  const dockerChanged = mergedDocker.length !== settings.dockerfileTemplates.length ||
+    mergedDocker.some((t, i) => t.key !== settings.dockerfileTemplates[i]?.key || t.content !== settings.dockerfileTemplates[i]?.content);
+  const nginxChanged = mergedNginx.length !== settings.nginxConfigs.length ||
+    mergedNginx.some((t, i) => t.key !== settings.nginxConfigs[i]?.key || t.content !== settings.nginxConfigs[i]?.content);
 
   if (dockerChanged || nginxChanged) {
-    settings.dockerfileTemplates = [...localDockerBuiltin, ...mergedDocker];
-    settings.nginxConfigs = [...localNginxBuiltin, ...mergedNginx];
+    settings.dockerfileTemplates = mergedDocker;
+    settings.nginxConfigs = mergedNginx;
     await enqueueFlush();
-    console.log(`[ConfigService] Synced from OSS: ${dockerTemplates.length} dockerfile, ${nginxTemplates.length} nginx templates (merged, ${mergedDocker.length + mergedNginx.length} total user)`);
+    console.log(`[ConfigService] Synced from OSS: ${dockerTemplates.length} dockerfile, ${nginxTemplates.length} nginx templates (merged, ${mergedDocker.length + mergedNginx.length} total)`);
   } else {
     console.log('[ConfigService] OSS sync: no changes detected');
   }

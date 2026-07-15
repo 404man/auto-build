@@ -218,15 +218,13 @@ function TemplateCard({ type, title, subtitle, iconName }: TemplateCardProps) {
               >
                 <span className="material-symbols-outlined text-[16px]">edit</span>
               </button>
-              {!item.builtin && (
-                <button
-                  onClick={() => handleDelete(item)}
-                  className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-error transition-all p-xs rounded hover:bg-surface-container-highest"
-                  title="删除"
-                >
-                  <span className="material-symbols-outlined text-[16px]">delete</span>
-                </button>
-              )}
+              <button
+                onClick={() => handleDelete(item)}
+                className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-error transition-all p-xs rounded hover:bg-surface-container-highest"
+                title="删除"
+              >
+                <span className="material-symbols-outlined text-[16px]">delete</span>
+              </button>
             </div>
           ))
         )}

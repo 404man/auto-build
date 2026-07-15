@@ -111,11 +111,6 @@ settingsRouter.delete('/api/settings/dockerfile-templates/:key', async (ctx: any
       ctx.body = { success: false, error: 'Template not found' };
       return;
     }
-    if (existing.builtin) {
-      ctx.status = 403;
-      ctx.body = { success: false, error: 'Cannot delete builtin template' };
-      return;
-    }
     await deleteTemplate('dockerfile', ctx.params.key);
     ctx.body = { success: true, data: { deleted: true } };
   } catch (err) {
@@ -196,11 +191,6 @@ settingsRouter.delete('/api/settings/nginx-configs/:key', async (ctx: any) => {
     if (!existing) {
       ctx.status = 404;
       ctx.body = { success: false, error: 'Config not found' };
-      return;
-    }
-    if (existing.builtin) {
-      ctx.status = 403;
-      ctx.body = { success: false, error: 'Cannot delete builtin config' };
       return;
     }
     await deleteTemplate('nginx', ctx.params.key);

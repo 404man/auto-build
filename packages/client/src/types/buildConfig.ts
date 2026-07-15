@@ -50,7 +50,6 @@ export interface StoredTemplate {
   name: string;
   description: string;
   content: string;
-  builtin: boolean;
 }
 
 /** 模板列表项（不含 content） */

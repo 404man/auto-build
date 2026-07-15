@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join, resolve, dirname } from 'node:path';
 import { homedir } from 'node:os';
-import { mkdir, stat, access, readFile, unlink } from 'node:fs/promises';
+import { mkdir, stat, access, readFile, unlink, copyFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import archiver from 'archiver';
@@ -114,7 +114,7 @@ function scheduleTaskCleanup(downloadId: string): void {
 /**
  * 启动二方包下载流程
  * 1. 校验项目路径
- * 2. 可选 git worktree 隔离
+ * 2. 可选 git worktree 隔离（复制必要文件：copyFiles > lockfileName > pnpm-lock.yaml）
  * 3. 验证 lockfile 存在
  * 4. 解析 .npmrc 获取 registry
  * 5. spawn 子进程执行下载脚本
@@ -124,7 +124,7 @@ export async function runDownload(
   projectPath: string,
   socketId: string,
   branch?: string,
-  options?: { lockfileName?: string; scopes?: string; registry?: string },
+  options?: { lockfileName?: string; scopes?: string; registry?: string; copyFiles?: string[] },
   externalDownloadId?: string,
 ): Promise<void> {
   const io = getIo();
@@ -212,6 +212,31 @@ export async function runDownload(
       task.worktreePath = worktreePath;
       workDir = worktreePath;
       onOutput('stdout', `[download] worktree 准备完成\n`);
+
+      // worktree 创建后，按优先级复制必要文件到 worktree
+      // 优先级：用户指定 copyFiles > lockfileName 参数 > pnpm-lock.yaml（默认）
+      const userCopyFiles = options?.copyFiles;
+      const filesToCopy: string[] =
+        userCopyFiles && userCopyFiles.length > 0
+          ? userCopyFiles
+          : [options?.lockfileName || 'pnpm-lock.yaml'];
+
+      let copiedCount = 0;
+      for (const fileName of filesToCopy) {
+        const srcFile = join(projectPath, fileName);
+        const destFile = join(workDir, fileName);
+        try {
+          await copyFile(srcFile, destFile);
+          onOutput('stdout', `[download] 已复制 ${fileName} 到 worktree\n`);
+          copiedCount++;
+        } catch {
+          onOutput('stdout', `[download] 复制 ${fileName} 失败（原项目可能没有该文件）\n`);
+        }
+      }
+
+      if (copiedCount === 0) {
+        throw new Error('没有成功复制任何必要文件到 worktree，请检查项目配置');
+      }
     }
 
     // Step 1: 确定 lockfile 路径并验证

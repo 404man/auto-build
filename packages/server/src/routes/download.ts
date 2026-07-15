@@ -14,12 +14,12 @@ import {
 export const downloadRouter = new Router();
 
 // ========== POST /api/download/start ==========
-// body: { projectPath, socketId, branch?, lockfileName?, scopes?, registry? }
+// body: { projectPath, socketId, branch?, lockfileName?, scopes?, registry?, copyFiles? }
 // response: { success, data: { downloadId } } | { success: false, error }
 downloadRouter.post('/start', async (ctx: any) => {
   try {
     const body = ctx.request.body;
-    const { projectPath, socketId, branch, lockfileName, scopes, registry } = body ?? {};
+    const { projectPath, socketId, branch, lockfileName, scopes, registry, copyFiles } = body ?? {};
 
     if (!projectPath || !socketId) {
       ctx.status = 400;
@@ -33,7 +33,7 @@ downloadRouter.post('/start', async (ctx: any) => {
     ctx.body = { success: true, data: { downloadId } };
 
     // fire-and-forget：下载在后台异步执行
-    runDownload(projectPath, socketId, branch, { lockfileName, scopes, registry }, downloadId).catch((err) => {
+    runDownload(projectPath, socketId, branch, { lockfileName, scopes, registry, copyFiles }, downloadId).catch((err) => {
       console.error(`[Download] downloadId=${downloadId} unhandled error:`, err);
     });
   } catch (err) {

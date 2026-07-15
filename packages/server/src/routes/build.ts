@@ -1,5 +1,5 @@
 import Router from '@koa/router';
-import { createReadStream, type ReadStream } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -66,6 +66,7 @@ buildRouter.get('/download/:buildId', async (ctx: any) => {
     try {
       const stats = await stat(zipPath);
       if (stats.isFile()) {
+        ctx.status = 200;
         ctx.set('Content-Type', 'application/zip');
         ctx.set('Content-Disposition', `attachment; filename="dist-${buildId}.zip"`);
         ctx.set('Content-Length', String(stats.size));
@@ -96,28 +97,11 @@ buildRouter.get('/download/:buildId', async (ctx: any) => {
     const stats = await stat(zipPath);
     const fileName = basename(zipPath);
 
+    ctx.status = 200;
     ctx.set('Content-Type', 'application/zip');
     ctx.set('Content-Disposition', `attachment; filename="${fileName}"`);
     ctx.set('Content-Length', String(stats.size));
-
-    // 使用 ctx.res 的原生 stream pipe，而非 Koa 的 ctx.body
-    const stream: ReadStream = createReadStream(zipPath);
-
-    stream.on('error', (err) => {
-      console.error(`[Build] 下载流错误: ${err.message}`);
-      if (!ctx.res.headersSent) {
-        ctx.status = 500;
-        ctx.body = { success: false, error: '下载失败' };
-      }
-    });
-
-    // 通过原生 response 发送流
-    await new Promise<void>((resolve, reject) => {
-      stream.pipe(ctx.res);
-      ctx.res.on('finish', resolve);
-      ctx.res.on('error', reject);
-      stream.on('error', reject);
-    });
+    ctx.body = createReadStream(zipPath);
   } catch (err) {
     if (!ctx.res.headersSent) {
       ctx.status = 500;

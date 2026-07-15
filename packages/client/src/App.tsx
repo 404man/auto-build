@@ -23,13 +23,44 @@ function loadTabs(): TabInfo[] {
   return [{ id: 'default', name: 'Project 1' }];
 }
 
+// 从 hash 解析初始页面
+const getPageFromHash = (): 'build' | 'settings' | 'download' => {
+  const hash = window.location.hash.replace('#/', '').replace('#', '');
+  if (['build', 'settings', 'download'].includes(hash)) {
+    return hash as 'build' | 'settings' | 'download';
+  }
+  return 'build'; // 默认页
+};
+
 function App() {
-  const [activePage, setActivePage] = useState<'build' | 'settings' | 'download'>('build');
+  const [activePage, setActivePage] = useState<'build' | 'settings' | 'download'>(getPageFromHash);
   const [tabs, setTabs] = useState<TabInfo[]>(loadTabs);
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     const loaded = loadTabs();
     return loaded[0]?.id || 'default';
   });
+
+  // 首次加载设置默认 hash
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.location.hash = '#/build';
+    }
+  }, []);
+
+  // 监听 hash 变化（浏览器前进/后退）
+  useEffect(() => {
+    const handleHashChange = () => {
+      setActivePage(getPageFromHash());
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // 导航包装函数
+  const navigateTo = useCallback((page: 'build' | 'settings' | 'download') => {
+    setActivePage(page);
+    window.location.hash = `#/${page}`;
+  }, []);
 
   // Persist tabs list
   useEffect(() => {
@@ -39,14 +70,14 @@ function App() {
   }, [tabs]);
 
   const handleNewProject = useCallback(() => {
-    setActivePage('build');
+    navigateTo('build');
     const newTab: TabInfo = {
       id: Date.now().toString(),
       name: `Project ${tabs.length + 1}`,
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);
-  }, [tabs.length]);
+  }, [tabs.length, navigateTo]);
 
   const handleCloseTab = useCallback((tabId: string) => {
     setTabs((prev) => {
@@ -113,7 +144,7 @@ function App() {
                   ? 'bg-secondary-container text-on-secondary-container'
                   : 'text-on-surface-variant hover:text-on-surface'
               }`}
-              onClick={(e) => { e.preventDefault(); setActivePage('build'); }}
+              onClick={(e) => { e.preventDefault(); navigateTo('build'); }}
             >
               <span className="material-symbols-outlined">rocket_launch</span>
               Build Center
@@ -128,7 +159,7 @@ function App() {
                   ? 'bg-secondary-container text-on-secondary-container'
                   : 'text-on-surface-variant hover:text-on-surface'
               }`}
-              onClick={(e) => { e.preventDefault(); setActivePage('download'); }}
+              onClick={(e) => { e.preventDefault(); navigateTo('download'); }}
             >
               <span className="material-symbols-outlined">download</span>
               Download Package
@@ -139,7 +170,7 @@ function App() {
                   ? 'bg-secondary-container text-on-secondary-container'
                   : 'text-on-surface-variant hover:text-on-surface'
               }`}
-              onClick={(e) => { e.preventDefault(); setActivePage('settings'); }}
+              onClick={(e) => { e.preventDefault(); navigateTo('settings'); }}
             >
               <span className="material-symbols-outlined">settings</span>
               Settings

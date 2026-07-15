@@ -1,7 +1,7 @@
 import Router from '@koa/router';
 import { createReadStream, type ReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
@@ -11,7 +11,6 @@ import {
   getBuildTask,
   getBatchBuildTask,
   getZipPath,
-  cleanupBuild,
 } from '../services/buildService.js';
 
 const buildRouter = new Router();
@@ -63,7 +62,7 @@ buildRouter.get('/download/:buildId', async (ctx: any) => {
       return;
     }
 
-    const zipPath = `${homedir()}/.auto-build/artifacts/dist-${buildId}.zip`;
+    const zipPath = join(homedir(), '.auto-build', 'artifacts', `dist-${buildId}.zip`);
     try {
       const stats = await stat(zipPath);
       if (stats.isFile()) {
@@ -103,11 +102,6 @@ buildRouter.get('/download/:buildId', async (ctx: any) => {
 
     // 使用 ctx.res 的原生 stream pipe，而非 Koa 的 ctx.body
     const stream: ReadStream = createReadStream(zipPath);
-
-    // 下载完成后清理临时文件
-    stream.on('end', () => {
-      cleanupBuild(buildId).catch(() => {});
-    });
 
     stream.on('error', (err) => {
       console.error(`[Build] 下载流错误: ${err.message}`);

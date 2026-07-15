@@ -1,7 +1,7 @@
 import Router from '@koa/router';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
@@ -95,7 +95,7 @@ buildRouter.get('/download/:buildId', async (ctx: any) => {
 
   try {
     const stats = await stat(zipPath);
-    const fileName = basename(zipPath);
+    const fileName = task.projectName ? `${task.projectName}.zip` : `dist-${buildId}.zip`;
 
     ctx.status = 200;
     ctx.set('Content-Type', 'application/zip');

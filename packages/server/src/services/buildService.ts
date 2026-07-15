@@ -13,6 +13,7 @@ import { getIo } from './io.js';
 export interface BuildTask {
   id: string;
   projectPath: string;
+  projectName?: string;
   status: 'installing' | 'building' | 'docker-building' | 'packaging' | 'completed' | 'failed' | 'cancelled';
   packageManager: 'npm' | 'pnpm' | 'yarn';
   process?: ChildProcess;
@@ -241,6 +242,7 @@ export async function runBuild(
   const task: BuildTask = {
     id: buildId,
     projectPath,
+    projectName,
     packageManager: 'pnpm', // 占位，try 块内会用 buildDir 重新检测
     status: 'installing',
     createdAt: Date.now(),

@@ -1,35 +1,39 @@
 import { theme } from 'antd';
 
-const { darkAlgorithm } = theme;
+const { defaultAlgorithm } = theme;
 
 export const appTheme = {
-  algorithm: darkAlgorithm,
+  algorithm: defaultAlgorithm,
   token: {
-    colorPrimary: '#0066ff',
-    colorBgLayout: '#10131c',
-    colorBgContainer: '#1d1f28',
-    colorBorder: '#424656',
-    colorText: '#e1e2ee',
-    colorTextSecondary: '#c2c6d8',
+    colorPrimary: '#0050cb',
+    colorBgLayout: '#faf8ff',
+    colorBgContainer: '#ecedfa',
+    colorBorder: '#c2c6d8',
+    colorBorderSecondary: '#e1e2ee',
+    colorText: '#191b24',
+    colorTextSecondary: '#424656',
+    colorSuccess: '#006c49',
+    colorError: '#ba1a1a',
+    colorWarning: '#a33200',
     borderRadius: 4,
     fontFamily: 'Inter, sans-serif',
   },
   components: {
     Layout: {
-      headerBg: '#1d1f28',
-      siderBg: '#191b24',
-      bodyBg: '#10131c',
+      headerBg: '#ecedfa',
+      siderBg: '#f2f3ff',
+      bodyBg: '#faf8ff',
     },
     Select: {
-      colorBgContainer: '#0b0e16',
-      colorBorder: '#424656',
+      colorBgContainer: '#ffffff',
+      colorBorder: '#c2c6d8',
     },
     Input: {
-      colorBgContainer: '#0b0e16',
-      colorBorder: '#424656',
+      colorBgContainer: '#ffffff',
+      colorBorder: '#c2c6d8',
     },
     Modal: {
-      colorBgContainer: '#1d1f28',
+      colorBgContainer: '#ecedfa',
     },
   },
 };

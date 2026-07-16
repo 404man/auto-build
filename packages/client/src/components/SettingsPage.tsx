@@ -156,6 +156,35 @@ function TemplateCard({ type, title, subtitle, iconName }: TemplateCardProps) {
   const openCreate = () => { setEditingKey(null); setModalOpen(true); };
   const openEdit = (key: string) => { setEditingKey(key); setModalOpen(true); };
 
+  const handleDownload = async (item: TemplateListItem) => {
+    try {
+      const res = type === 'dockerfile'
+        ? await settingsApi.getDockerfileTemplate(item.key)
+        : await settingsApi.getNginxConfig(item.key);
+      const template: StoredTemplate = res.data.data;
+
+      let filename: string;
+      if (type === 'dockerfile') {
+        filename = template.name || 'Dockerfile';
+      } else {
+        filename = (template.name || 'nginx') + '.conf';
+      }
+
+      const blob = new Blob([template.content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      message.success('模板已下载');
+    } catch {
+      message.error('下载失败');
+    }
+  };
+
   const handleDelete = (item: TemplateListItem) => {
     Modal.confirm({
       title: '确认删除',
@@ -217,6 +246,13 @@ function TemplateCard({ type, title, subtitle, iconName }: TemplateCardProps) {
                 title="编辑"
               >
                 <span className="material-symbols-outlined text-[16px]">edit</span>
+              </button>
+              <button
+                onClick={() => handleDownload(item)}
+                className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-primary transition-all p-xs rounded hover:bg-surface-container-highest"
+                title="下载"
+              >
+                <span className="material-symbols-outlined text-[16px]">download</span>
               </button>
               <button
                 onClick={() => handleDelete(item)}

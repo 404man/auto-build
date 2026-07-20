@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, rename, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { createOssClient, type OssConfig } from './ossService.js';
 
 // ========== 类型定义 ==========
@@ -14,6 +15,14 @@ export interface StoredTemplate {
 
 export type TemplateType = 'dockerfile' | 'nginx';
 
+export interface SubApp {
+  id: string;           // uuid
+  routePath: string;    // "cms"（不含前导/）
+  deployDir: string;    // "cms"
+  projectName: string;  // "hm-cms-ui"
+  enabled: boolean;     // 启用开关
+}
+
 export interface Settings {
   dockerfileTemplates: StoredTemplate[];
   nginxConfigs: StoredTemplate[];
@@ -24,6 +33,7 @@ export interface Settings {
     secret: string;
   };
   oss?: OssConfig;
+  subApps: SubApp[];
 }
 
 // ========== 路径常量 ==========
@@ -127,6 +137,43 @@ const BUILTIN_NGINX_CONFIGS: StoredTemplate[] = [
   },
 ];
 
+// ========== 子应用默认数据 ==========
+
+const DEFAULT_SUB_APPS: Omit<SubApp, 'id' | 'enabled'>[] = [
+  { routePath: 'gmp-strategy',     deployDir: 'gmp-strategy',     projectName: 'hm-gmp-strategy-ui' },
+  { routePath: 'za-fin-cdp-fe',    deployDir: 'za-fin-cdp-fe',    projectName: 'hm-cdp-ui' },
+  { routePath: 'abtest',           deployDir: 'abtest',           projectName: 'hm-abtest-ui' },
+  { routePath: 'x-gateway',        deployDir: 'x-gateway',        projectName: 'x-gateway-ui' },
+  { routePath: 'scrm-admin',       deployDir: 'scrm-admin',       projectName: 'hm-scrm-admin-ui' },
+  { routePath: 'console',          deployDir: 'console',          projectName: 'hm-admin-ui' },
+  { routePath: 'cms',              deployDir: 'cms',              projectName: 'hm-cms-ui' },
+  { routePath: 'ad-admin',         deployDir: 'ad-admin',         projectName: 'hm-ad-admin-ui' },
+  { routePath: 'xflow',            deployDir: 'xflow',            projectName: 'hm-xflow-anlink-ui' },
+  { routePath: 'metadata-xflow',   deployDir: 'metadata-xflow',   projectName: 'hm-xflow-ui-metadata' },
+  { routePath: 'bi-pms',           deployDir: 'bi-pms',           projectName: 'hm-bi-pms-ui' },
+  { routePath: 'bi-back',          deployDir: 'bi-back',          projectName: 'hm-bi-datainsight-ui' },
+  { routePath: 'bi-starmetric',    deployDir: 'bi-starmetric',    projectName: 'hm-insight-starmetric-ui' },
+  { routePath: 'bi-portal',        deployDir: 'bi-portal',        projectName: 'hm-bi-portal-ui' },
+  { routePath: 'datainsight',      deployDir: 'datainsight',      projectName: 'hm-bi-zatlas-ui' },
+  { routePath: 'touch-manage',     deployDir: 'touch-manage',     projectName: 'hm-touch-manage-ui' },
+  { routePath: 'material-basic',   deployDir: 'material-basic',   projectName: 'hm-material-basic-ui' },
+  { routePath: 'ai-platform',      deployDir: 'ai-platform',      projectName: 'ai-platform-static' },
+  { routePath: 'xlink-touch',      deployDir: 'xlink-touch',      projectName: 'hm-xlink-touch-ui' },
+  { routePath: 'event-center',     deployDir: 'event-center',     projectName: 'hm-event-center-ui' },
+  { routePath: 'ad-cms',           deployDir: 'ad-cms',           projectName: 'hm-ad-cms-ui' },
+  { routePath: 'ad-base',          deployDir: 'ad-base',          projectName: 'hm-ad-base-ui' },
+  { routePath: 'activity-common',  deployDir: 'activity-common',  projectName: 'hm-activity-common-ui' },
+  { routePath: 'activity-playbox', deployDir: 'activity-playbox', projectName: 'hm-activity-playbox-ui' },
+];
+
+function defaultSubAppsWithIds(): SubApp[] {
+  return DEFAULT_SUB_APPS.map((app) => ({
+    ...app,
+    id: randomUUID(),
+    enabled: true,
+  }));
+}
+
 const DEFAULT_SETTINGS: Settings = {
   dockerfileTemplates: BUILTIN_DOCKERFILE_TEMPLATES,
   nginxConfigs: BUILTIN_NGINX_CONFIGS,
@@ -137,6 +184,7 @@ const DEFAULT_SETTINGS: Settings = {
     secret: '',
   },
   oss: undefined,
+  subApps: defaultSubAppsWithIds(),
 };
 
 // ========== 内存缓存 ==========
@@ -215,6 +263,10 @@ export async function initConfigService(): Promise<void> {
     try {
       const raw = await readFile(SETTINGS_PATH, 'utf-8');
       settings = JSON.parse(raw) as Settings;
+      // 兼容旧数据：补全 subApps
+      if (!settings.subApps) {
+        settings.subApps = defaultSubAppsWithIds();
+      }
     } catch (e) {
       console.error(`[ConfigService] settings.json 解析失败，使用默认配置:`, e);
       // 备份损坏的文件
@@ -305,6 +357,17 @@ export function getRegistryConfig(): Settings['registry'] {
  */
 export async function saveRegistryConfig(registry: Settings['registry']): Promise<void> {
   settings.registry = { ...registry };
+  await enqueueFlush();
+}
+
+// ========== SubApp API ==========
+
+export function getSubApps(): SubApp[] {
+  return settings.subApps ?? defaultSubAppsWithIds();
+}
+
+export async function saveSubApps(subApps: SubApp[]): Promise<void> {
+  settings.subApps = subApps;
   await enqueueFlush();
 }
 

@@ -12,8 +12,15 @@ import {
   testOss,
   syncToOss,
   syncFromOss,
+  getSubApps,
+  saveSubApps,
   type TemplateType,
+  type SubApp,
 } from '../services/configService.js';
+import {
+  generateStandardNginx,
+  generateDockerNginx,
+} from '../services/nginxGenerator.js';
 import { setCacheClearedAt, getCacheClearedAt } from '../services/buildService.js';
 
 export const settingsRouter = new Router();
@@ -346,4 +353,81 @@ settingsRouter.post('/api/settings/clear-artifacts', async (ctx: any) => {
 
 settingsRouter.get('/api/settings/cache-cleared-at', async (ctx: any) => {
   ctx.body = { success: true, data: { cacheClearedAt: getCacheClearedAt() } };
+});
+
+// ========== 子应用管理 ==========
+
+settingsRouter.get('/api/settings/sub-apps', async (ctx: any) => {
+  try {
+    const subApps = getSubApps();
+    ctx.body = { success: true, data: subApps };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+const SAFE_PATH_RE = /^[a-zA-Z0-9._-]+$/;
+
+settingsRouter.put('/api/settings/sub-apps', async (ctx: any) => {
+  try {
+    const { subApps } = ctx.request.body as { subApps: SubApp[] };
+    if (!Array.isArray(subApps)) {
+      ctx.status = 400;
+      ctx.body = { success: false, error: 'subApps must be an array' };
+      return;
+    }
+    for (const app of subApps) {
+      if (!app.routePath || !app.deployDir) {
+        ctx.status = 400;
+        ctx.body = { success: false, error: 'Each sub-app must have routePath and deployDir' };
+        return;
+      }
+      if (!SAFE_PATH_RE.test(app.routePath) || !SAFE_PATH_RE.test(app.deployDir)) {
+        ctx.status = 400;
+        ctx.body = { success: false, error: `Invalid characters in routePath or deployDir: only alphanumeric, dash, dot, underscore allowed` };
+        return;
+      }
+    }
+    await saveSubApps(subApps);
+    ctx.body = { success: true };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+// ========== Nginx 配置生成 ==========
+
+settingsRouter.post('/api/settings/nginx/generate', async (ctx: any) => {
+  try {
+    const { mode, subApps, options } = ctx.request.body;
+    if (!Array.isArray(subApps)) {
+      ctx.status = 400;
+      ctx.body = { success: false, error: 'subApps must be an array' };
+      return;
+    }
+    if (mode !== 'standard' && mode !== 'docker') {
+      ctx.status = 400;
+      ctx.body = { success: false, error: 'mode must be "standard" or "docker"' };
+      return;
+    }
+    for (const app of subApps) {
+      if (!SAFE_PATH_RE.test(app.routePath) || !SAFE_PATH_RE.test(app.deployDir)) {
+        ctx.status = 400;
+        ctx.body = { success: false, error: `Invalid characters in routePath or deployDir: only alphanumeric, dash, dot, underscore allowed` };
+        return;
+      }
+    }
+    let config: string;
+    if (mode === 'standard') {
+      config = generateStandardNginx(subApps, options);
+    } else {
+      config = generateDockerNginx(subApps, options);
+    }
+    ctx.body = { success: true, data: { config } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
 });

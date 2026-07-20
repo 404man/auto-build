@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Modal, Input, Select, App, Spin } from 'antd';
 import { settingsApi } from '../api';
 import type { TemplateListItem, StoredTemplate, RegistrySettings, OssSettings } from '../types/buildConfig';
+import MicroAppManager from './MicroAppManager';
 
 /* ────────────────────────── Constants ────────────────────────── */
 
@@ -737,28 +738,33 @@ export default function SettingsPage() {
     <div className="max-w-[1280px] w-full">
       <h2 className="font-body-lg text-h1 text-on-surface font-bold mb-lg">Settings</h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-        {/* Left column — Template management */}
-        <div className="flex flex-col gap-lg">
-          <TemplateCard
-            type="dockerfile"
-            title="Dockerfile Templates"
-            subtitle="Manage base images and build steps"
-            iconName="description"
-          />
-          <TemplateCard
-            type="nginx"
-            title="Nginx Templates"
-            subtitle="Manage reverse proxy and static file configs"
-            iconName="dns"
-          />
-        </div>
+      <div className="flex flex-col gap-lg">
+        {/* Micro-Frontend Nginx Generator — full width */}
+        <MicroAppManager />
 
-        {/* Right column — Registry + OSS + Cache */}
-        <div className="flex flex-col gap-lg">
-          <RegistryForm />
-          <OssForm />
-          <CacheManagement />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
+          {/* Left column — Template management */}
+          <div className="flex flex-col gap-lg">
+            <TemplateCard
+              type="dockerfile"
+              title="Dockerfile Templates"
+              subtitle="Manage base images and build steps"
+              iconName="description"
+            />
+            <TemplateCard
+              type="nginx"
+              title="Nginx Templates"
+              subtitle="Manage reverse proxy and static file configs"
+              iconName="dns"
+            />
+          </div>
+
+          {/* Right column — Registry + OSS + Cache */}
+          <div className="flex flex-col gap-lg">
+            <RegistryForm />
+            <OssForm />
+            <CacheManagement />
+          </div>
         </div>
       </div>
     </div>

@@ -3,6 +3,15 @@ import { getGlobalMessage } from '../utils/message';
 import type { DockerTemplate, DockerTemplateDetail, NginxConfig, NginxConfigDetail, DockerBuildOptions, SettingsData, StoredTemplate, TemplateListItem, RegistrySettings, OssSettings } from '../types/buildConfig';
 import type { AxiosResponse } from 'axios';
 
+/* ---------- SubApp (Micro Frontend) ---------- */
+export interface SubApp {
+  id: string;
+  routePath: string;
+  deployDir: string;
+  projectName: string;
+  enabled: boolean;
+}
+
 const http = axios.create({ baseURL: '/api' });
 
 // 统一错误提示拦截器
@@ -185,6 +194,14 @@ export const settingsApi = {
     http.post('/settings/clear-artifacts'),
   getCacheClearedAt: (): Promise<AxiosResponse<{ success: boolean; data: { cacheClearedAt: number } }>> =>
     http.get('/settings/cache-cleared-at'),
+
+  // 微前端子应用管理
+  getSubApps: (): Promise<AxiosResponse<{ success: boolean; data: SubApp[] }>> =>
+    http.get('/settings/sub-apps'),
+  saveSubApps: (subApps: SubApp[]): Promise<AxiosResponse<{ success: boolean }>> =>
+    http.put('/settings/sub-apps', { subApps }),
+  generateNginx: (params: { mode: 'standard' | 'docker'; subApps: SubApp[]; options: Record<string, any> }): Promise<AxiosResponse<{ success: boolean; data: { config: string } }>> =>
+    http.post('/settings/nginx/generate', params),
 };
 
 /* ---------- Download API ---------- */

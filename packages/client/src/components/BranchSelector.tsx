@@ -65,6 +65,8 @@ export default function BranchSelector({ projectPath, onBranchSelect, disabled =
       <div className="flex items-center gap-xs">
         <span className="material-symbols-outlined text-primary text-xl">call_split</span>
         <Select
+          showSearch
+          optionFilterProp="value"
           placeholder="选择分支"
           style={{ width: '100%' }}
           value={selected}

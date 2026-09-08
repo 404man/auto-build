@@ -10,6 +10,7 @@ import { buildRouter } from './routes/build.js';
 import { dockerRouter } from './routes/docker.js';
 import { settingsRouter } from './routes/settings.js';
 import { downloadRouter } from './routes/download.js';
+import { nvmRouter } from './routes/nvm.js';
 import { initConfigService } from './services/configService.js';
 
 const app = new Koa();
@@ -84,6 +85,10 @@ app.use(projectRouter.allowedMethods());
 // Build routes
 app.use(buildRouter.prefix('/api/build').routes());
 app.use(buildRouter.allowedMethods());
+
+// NVM / Node version routes
+app.use(nvmRouter.routes());
+app.use(nvmRouter.allowedMethods());
 
 // Docker routes
 app.use(dockerRouter.routes());

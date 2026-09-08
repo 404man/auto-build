@@ -119,6 +119,7 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
       {
         installCommand: buildConfig?.installCommand || '',
         buildCommand: buildConfig?.buildCommand || '',
+        nodeVersion: buildConfig?.buildMode === 'static' ? (buildConfig.nodeVersion || '') : '',
       },
       dockerOpts,
     );

@@ -70,16 +70,16 @@ export const projectApi = {
 
 /* ---------- Build API ---------- */
 export const buildApi = {
-  start(projectPath: string, socketId: string, branch?: string, dockerOptions?: DockerBuildOptions, installCommand?: string, buildCommand?: string) {
+  start(projectPath: string, socketId: string, branch?: string, dockerOptions?: DockerBuildOptions, installCommand?: string, buildCommand?: string, nodeVersion?: string) {
     return http.post<{ success: boolean; data: { buildId: string; status: string; packageManager: string } }>(
       '/build/start',
-      { projectPath, socketId, branch, dockerOptions, installCommand, buildCommand },
+      { projectPath, socketId, branch, dockerOptions, installCommand, buildCommand, nodeVersion },
     );
   },
-  startBatch(projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>, socketId: string, installCommand?: string, buildCommand?: string) {
+  startBatch(projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>, socketId: string, installCommand?: string, buildCommand?: string, nodeVersion?: string) {
     return http.post<{ success: boolean; data: { batchId: string; buildIds: string[] } }>(
       '/build/batch',
-      { projects, socketId, installCommand, buildCommand },
+      { projects, socketId, installCommand, buildCommand, nodeVersion },
     );
   },
   getBatchStatus(batchId: string) {
@@ -202,6 +202,16 @@ export const settingsApi = {
     http.put('/settings/sub-apps', { subApps }),
   generateNginx: (params: { mode: 'standard' | 'docker'; subApps: SubApp[]; options: Record<string, any> }): Promise<AxiosResponse<{ success: boolean; data: { config: string } }>> =>
     http.post('/settings/nginx/generate', params),
+};
+
+/* ---------- NVM / Node versions ---------- */
+export const nvmApi = {
+  listVersions() {
+    return http.get<{
+      success: boolean;
+      data: { versions: string[]; current: string; nvmAvailable: boolean };
+    }>('/nvm/versions');
+  },
 };
 
 /* ---------- Download API ---------- */

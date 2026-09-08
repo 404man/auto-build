@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Radio, Select, Switch, Input, Modal, App } from 'antd';
-import { settingsApi } from '../api';
+import { settingsApi, nvmApi } from '../api';
 import type { TemplateListItem } from '../types/buildConfig';
 
 export interface BuildConfigState {
@@ -14,6 +14,7 @@ export interface BuildConfigState {
   imageName: string;
   installCommand: string;   // 自定义安装命令，空字符串表示使用自动检测
   buildCommand: string;     // 自定义构建命令，空字符串表示使用自动检测
+  nodeVersion: string;      // nvm Node 版本，空字符串表示使用当前默认
 }
 
 interface BuildConfigurationProps {
@@ -35,11 +36,15 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
     imageName: '',
     installCommand: '',
     buildCommand: '',
+    nodeVersion: '',
   });
 
   const [dockerTemplates, setDockerTemplates] = useState<TemplateListItem[]>([]);
   const [nginxTemplates, setNginxTemplates] = useState<TemplateListItem[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [nodeVersions, setNodeVersions] = useState<string[]>([]);
+  const [currentNodeVersion, setCurrentNodeVersion] = useState('');
+  const [nodeVersionsLoading, setNodeVersionsLoading] = useState(true);
 
   // Edit modal state
   const [editDockerModal, setEditDockerModal] = useState(false);
@@ -75,6 +80,36 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
   useEffect(() => {
     reloadTemplates();
   }, [reloadTemplates]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setNodeVersionsLoading(true);
+    nvmApi
+      .listVersions()
+      .then((res) => {
+        if (cancelled) return;
+        const { versions, current } = res.data.data;
+        setNodeVersions(versions);
+        setCurrentNodeVersion(current);
+        // 默认选中当前运行时版本
+        setConfig((prev) => {
+          if (prev.nodeVersion) return prev;
+          const next = { ...prev, nodeVersion: current || '' };
+          onConfigChange?.(next);
+          return next;
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setNodeVersions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setNodeVersionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onConfigChange]);
 
   const handleEditDocker = useCallback(async () => {
     try {
@@ -140,6 +175,30 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
           <Radio value="docker">Docker Image Build</Radio>
         </Radio.Group>
       </div>
+
+      {/* Node version (Static Resource Build only) */}
+      {config.buildMode === 'static' && (
+        <div className="flex flex-col gap-xs mb-sm">
+          <label className="text-label-mono font-label-mono text-on-surface-variant">
+            Node Version
+            <span className="text-on-surface-variant opacity-50 ml-1">(via nvm)</span>
+          </label>
+          <Select
+            value={config.nodeVersion || undefined}
+            onChange={(v) => updateConfig({ nodeVersion: v })}
+            loading={nodeVersionsLoading}
+            placeholder="Select Node version"
+            showSearch
+            optionFilterProp="label"
+            style={{ width: '100%' }}
+            options={nodeVersions.map((v) => ({
+              value: v,
+              label: v === currentNodeVersion ? `${v} (current)` : v,
+            }))}
+            notFoundContent={nodeVersionsLoading ? 'Loading…' : '未检测到 nvm 版本'}
+          />
+        </div>
+      )}
 
       {/* Commands Display */}
       <div className="flex flex-col gap-sm">

@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import archiver from 'archiver';
 import treeKill from 'tree-kill';
 import { getIo } from './io.js';
+import { buildNodeVersionEnv } from './nvmService.js';
 
 // ========== 类型定义 ==========
 
@@ -231,6 +232,7 @@ export async function runBuild(
   customInstallCommand?: string,
   customBuildCommand?: string,
   externalBuildId?: string,
+  nodeVersion?: string,
 ): Promise<{ buildId: string; packageManager: PackageManager }> {
   const io = getIo();
 
@@ -339,6 +341,13 @@ export async function runBuild(
     const packageManager = await detectPackageManager(buildDir);
     task.packageManager = packageManager;
 
+    // 可选：通过 nvm 切换 Node 版本（将对应 bin 前置到 PATH）
+    let nodeEnv: Record<string, string> | undefined;
+    if (nodeVersion?.trim()) {
+      nodeEnv = await buildNodeVersionEnv(nodeVersion);
+      onOutput('stdout', `[auto-dist] 使用 nvm Node 版本: ${nodeVersion.trim()}\n`);
+    }
+
     // Step 1: {pm} install
     const parsedCustomInstall = customInstallCommand ? parseCustomCommand(customInstallCommand) : null;
     const installCmd = parsedCustomInstall || getInstallCommand(packageManager);
@@ -378,8 +387,17 @@ export async function runBuild(
       }
     } catch { /* 无 .npmrc 或读取失败，忽略 */ }
 
-    const installEnv = npmRegistry ? { NPM_CONFIG_REGISTRY: npmRegistry } : undefined;
-    const installSpawn = spawnCommand(installCmd.command, installCmd.args, buildDir, onOutput, installEnv);
+    const installEnv = {
+      ...(npmRegistry ? { NPM_CONFIG_REGISTRY: npmRegistry } : {}),
+      ...nodeEnv,
+    };
+    const installSpawn = spawnCommand(
+      installCmd.command,
+      installCmd.args,
+      buildDir,
+      onOutput,
+      Object.keys(installEnv).length > 0 ? installEnv : undefined,
+    );
     task.process = installSpawn.child;
     const installResult = await installSpawn.exitPromise;
 
@@ -415,7 +433,7 @@ export async function runBuild(
     }
     onOutput('stdout', `[auto-dist] 开始执行 ${buildCmd.command} ${buildCmd.args.join(' ')}...\n`);
 
-    const buildSpawn = spawnCommand(buildCmd.command, buildCmd.args, buildDir, onOutput);
+    const buildSpawn = spawnCommand(buildCmd.command, buildCmd.args, buildDir, onOutput, nodeEnv);
     task.process = buildSpawn.child;
     const buildResult = await buildSpawn.exitPromise;
 
@@ -600,6 +618,7 @@ export async function runBatchBuild(
   buildCommand?: string,
   externalBuildIds?: string[],
   externalBatchId?: string,
+  nodeVersion?: string,
 ): Promise<{ batchId: string; buildIds: string[] }> {
   const io = getIo();
   const batchId = externalBatchId || randomUUID();
@@ -675,7 +694,7 @@ export async function runBatchBuild(
         }
       }
 
-      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions, installCommand, buildCommand, externalBuildIds?.[i]);
+      const { buildId, packageManager } = await runBuild(project.path, socketId, projectBranch, project.name, (project as any).dockerOptions, installCommand, buildCommand, externalBuildIds?.[i], nodeVersion);
       results[i].buildId = buildId;
       buildIds.push(buildId);
 

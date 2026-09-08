@@ -22,7 +22,7 @@ const buildRouter = new Router();
 buildRouter.post('/start', async (ctx: any) => {
   try {
     const body = ctx.request.body;
-    const { projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand } = body ?? {};
+    const { projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand, nodeVersion } = body ?? {};
 
     if (!projectPath || !socketId) {
       ctx.status = 400;
@@ -36,7 +36,7 @@ buildRouter.post('/start', async (ctx: any) => {
     ctx.body = { success: true, data: { buildId } };
 
     // fire-and-forget：构建在后台异步执行
-    runBuild(projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand, buildId).catch((err) => {
+    runBuild(projectPath, socketId, branch, projectName, dockerOptions, installCommand, buildCommand, buildId, nodeVersion).catch((err) => {
       console.error(`[Build] buildId=${buildId} unhandled error:`, err);
     });
   } catch (err) {
@@ -170,7 +170,7 @@ buildRouter.get('/status/:buildId', async (ctx: any) => {
 buildRouter.post('/batch', async (ctx: any) => {
   try {
     const body = ctx.request.body;
-    const { projects, branch, socketId, installCommand, buildCommand } = body ?? {};
+    const { projects, branch, socketId, installCommand, buildCommand, nodeVersion } = body ?? {};
 
     if (!projects || !Array.isArray(projects) || projects.length === 0) {
       ctx.status = 400;
@@ -198,7 +198,7 @@ buildRouter.post('/batch', async (ctx: any) => {
     ctx.body = { success: true, data: { batchId, buildIds } };
 
     // fire-and-forget：批量构建在后台异步执行
-    runBatchBuild(normalizedProjects, socketId, installCommand, buildCommand, buildIds, batchId).catch((err) => {
+    runBatchBuild(normalizedProjects, socketId, installCommand, buildCommand, buildIds, batchId, nodeVersion).catch((err) => {
       console.error(`[Build] batchId=${batchId} unhandled error:`, err);
     });
   } catch (err) {

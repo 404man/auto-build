@@ -6,6 +6,10 @@ export interface DockerBuildOptions {
   customDockerfile?: string;
   nginxConfig?: string;
   customNginxConfig?: string;
+  /** docker build --platform，例如 linux/arm64；空字符串表示宿主机默认 */
+  platform?: string;
+  /** 下载镜像时是否 gzip 压缩 */
+  gzipImage?: boolean;
   registry?: {
     url: string;
     imageName: string;
@@ -24,6 +28,9 @@ export interface BuildConfig {
   pushEnabled: boolean;
   registryUrl: string;
   imageName: string;
+  imageTag?: string;
+  platform?: string;
+  gzipImage?: boolean;
 }
 
 export interface DockerTemplate {
@@ -73,10 +80,17 @@ export interface OssSettings {
   prefix?: string;
 }
 
+/** Docker 构建默认配置（Settings / OSS 同步） */
+export interface DockerBuildSettings {
+  platform: string;
+  gzipImage: boolean;
+}
+
 /** Settings 全局配置概览 */
 export interface SettingsData {
   dockerfileTemplates: TemplateListItem[];
   nginxConfigs: TemplateListItem[];
   registry: RegistrySettings;
+  dockerBuild?: DockerBuildSettings;
   oss?: OssSettings;
 }

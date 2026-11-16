@@ -80,14 +80,14 @@ export function generateStandardNginx(
   lines.push(`        ; sub_filter_once on;`);
   lines.push(`        ; sub_filter_types text/html;`);
   lines.push(``);
-  lines.push(`        root ${baseDir}/portal;`);
+  lines.push(`        root ${baseDir}/portal/dist;`);
   lines.push(`    }`);
 
   // --- 子应用 location 块 ---
   for (const app of enabledApps) {
     lines.push(`    location ^~ /${app.routePath} {`);
     lines.push(`        # ${app.projectName} 项目`);
-    lines.push(`        alias ${baseDir}/${app.deployDir};`);
+    lines.push(`        alias ${baseDir}/${app.deployDir}/dist;`);
     lines.push(`        index index.html;`);
     lines.push(`        try_files $uri $uri/ /${app.deployDir}/index.html;`);
     lines.push(`    }`);
@@ -116,7 +116,7 @@ export function generateStandardNginx(
   // --- error_page ---
   lines.push(`    error_page 500 502 503 504 /50x.html;`);
   lines.push(`    location = /50x.html {`);
-  lines.push(`        root ${baseDir}/portal;`);
+  lines.push(`        root ${baseDir}/portal/dist;`);
   lines.push(`    }`);
 
   lines.push(`}`);

@@ -12,6 +12,9 @@ export interface BuildConfigState {
   pushEnabled: boolean;
   registryUrl: string;
   imageName: string;
+  imageTag: string;
+  platform: string;
+  gzipImage: boolean;
   installCommand: string;   // 自定义安装命令，空字符串表示使用自动检测
   buildCommand: string;     // 自定义构建命令，空字符串表示使用自动检测
   nodeVersion: string;      // nvm Node 版本，空字符串表示使用当前默认
@@ -34,6 +37,9 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
     pushEnabled: false,
     registryUrl: '',
     imageName: '',
+    imageTag: '',
+    platform: '',
+    gzipImage: true,
     installCommand: '',
     buildCommand: '',
     nodeVersion: '',
@@ -106,6 +112,28 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
       .finally(() => {
         if (!cancelled) setNodeVersionsLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [onConfigChange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    settingsApi.getDockerBuild()
+      .then((res) => {
+        if (cancelled) return;
+        const d = res.data.data;
+        setConfig((prev) => {
+          const next = {
+            ...prev,
+            platform: prev.platform || d?.platform || '',
+            gzipImage: d?.gzipImage !== false,
+          };
+          onConfigChange?.(next);
+          return next;
+        });
+      })
+      .catch(() => { /* 使用本地默认 */ });
     return () => {
       cancelled = true;
     };
@@ -211,7 +239,7 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
           <Input
             value={config.installCommand}
             onChange={(e) => updateConfig({ installCommand: e.target.value })}
-            placeholder="e.g. npm install, pnpm install, yarn"
+            placeholder="e.g. npm install --legacy-peer-deps"
             className="bg-surface border-outline-variant text-on-surface font-label-mono"
             allowClear
           />
@@ -226,7 +254,7 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
           <Input
             value={config.buildCommand}
             onChange={(e) => updateConfig({ buildCommand: e.target.value })}
-            placeholder="e.g. npm run build, pnpm build, make"
+            placeholder="e.g. NODE_OPTIONS=--max-old-space-size=4096 npm run build"
             className="bg-surface border-outline-variant text-on-surface font-label-mono"
             allowClear
           />
@@ -325,6 +353,55 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
             </>
           )}
 
+          <div className="border-t border-outline-variant my-sm" />
+
+          {/* Image identity + platform */}
+          <div className="flex items-center gap-xs mb-xs">
+            <span className="material-symbols-outlined text-primary text-xl">deploy</span>
+            <h4 className="text-h2 text-on-surface text-lg">Image &amp; Platform</h4>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+            <div className="flex flex-col gap-xs">
+              <label className="font-label-mono text-label-mono text-on-surface-variant">Image Name</label>
+              <Input
+                placeholder="hm-portal-ui"
+                value={config.imageName}
+                onChange={(e) => updateConfig({ imageName: e.target.value })}
+              />
+            </div>
+            <div className="flex flex-col gap-xs">
+              <label className="font-label-mono text-label-mono text-on-surface-variant">Image Tag</label>
+              <Input
+                placeholder="latest"
+                value={config.imageTag}
+                onChange={(e) => updateConfig({ imageTag: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-xs">
+            <label className="font-label-mono text-label-mono text-on-surface-variant">Build Platform</label>
+            <Select
+              value={config.platform}
+              onChange={(v) => updateConfig({ platform: v })}
+              style={{ width: '100%' }}
+              options={[
+                { label: 'Host default（不指定 --platform）', value: '' },
+                { label: 'linux/amd64', value: 'linux/amd64' },
+                { label: 'linux/arm64', value: 'linux/arm64' },
+              ]}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="font-label-mono text-label-mono text-on-surface-variant block">Gzip 压缩镜像下载</label>
+              <p className="text-on-surface-variant text-[11px] mt-xs">下载时 <code className="font-label-mono">docker save | gzip</code>，生成 .tar.gz</p>
+            </div>
+            <Switch
+              checked={config.gzipImage}
+              onChange={(checked) => updateConfig({ gzipImage: checked })}
+            />
+          </div>
+
           {/* Push Configuration */}
           <div className="border-t border-outline-variant my-sm" />
           <div className="flex items-center justify-between mb-xs">
@@ -338,23 +415,13 @@ export function BuildConfiguration({ config: _externalConfig, onConfigChange }: 
             />
           </div>
           {config.pushEnabled && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
-              <div className="flex flex-col gap-xs">
-                <label className="font-label-mono text-label-mono text-on-surface-variant">Registry URL</label>
-                <Input
-                  placeholder="docker.io"
-                  value={config.registryUrl}
-                  onChange={(e) => updateConfig({ registryUrl: e.target.value })}
-                />
-              </div>
-              <div className="flex flex-col gap-xs">
-                <label className="font-label-mono text-label-mono text-on-surface-variant">Image Name &amp; Tag</label>
-                <Input
-                  placeholder="my-app:latest"
-                  value={config.imageName}
-                  onChange={(e) => updateConfig({ imageName: e.target.value })}
-                />
-              </div>
+            <div className="flex flex-col gap-xs">
+              <label className="font-label-mono text-label-mono text-on-surface-variant">Registry URL</label>
+              <Input
+                placeholder="docker.io"
+                value={config.registryUrl}
+                onChange={(e) => updateConfig({ registryUrl: e.target.value })}
+              />
             </div>
           )}
         </>

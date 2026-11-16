@@ -23,6 +23,11 @@ export interface SubApp {
   enabled: boolean;     // 启用开关
 }
 
+export interface DockerBuildSettings {
+  platform: string;
+  gzipImage: boolean;
+}
+
 export interface Settings {
   dockerfileTemplates: StoredTemplate[];
   nginxConfigs: StoredTemplate[];
@@ -32,6 +37,7 @@ export interface Settings {
     username: string;
     secret: string;
   };
+  dockerBuild: DockerBuildSettings;
   oss?: OssConfig;
   subApps: SubApp[];
 }
@@ -183,6 +189,10 @@ const DEFAULT_SETTINGS: Settings = {
     username: '',
     secret: '',
   },
+  dockerBuild: {
+    platform: '',
+    gzipImage: true,
+  },
   oss: undefined,
   subApps: defaultSubAppsWithIds(),
 };
@@ -232,13 +242,14 @@ async function fileExists(p: string): Promise<boolean> {
 }
 
 async function syncAllTemplatesToOss(client: NonNullable<ReturnType<typeof createOssClient>>, prefix: string): Promise<void> {
-  const { putTemplateToOss } = await import('./ossService.js');
+  const { putTemplateToOss, putJsonToOss } = await import('./ossService.js');
   for (const tpl of settings.dockerfileTemplates) {
     await putTemplateToOss(client, prefix, 'dockerfile', tpl);
   }
   for (const tpl of settings.nginxConfigs) {
     await putTemplateToOss(client, prefix, 'nginx', tpl);
   }
+  await putJsonToOss(client, prefix, 'docker-build.json', settings.dockerBuild);
 }
 
 async function initOssClient(): Promise<void> {
@@ -263,9 +274,12 @@ export async function initConfigService(): Promise<void> {
     try {
       const raw = await readFile(SETTINGS_PATH, 'utf-8');
       settings = JSON.parse(raw) as Settings;
-      // 兼容旧数据：补全 subApps
+      // 兼容旧数据：补全 subApps / dockerBuild
       if (!settings.subApps) {
         settings.subApps = defaultSubAppsWithIds();
+      }
+      if (!settings.dockerBuild) {
+        settings.dockerBuild = structuredClone(DEFAULT_SETTINGS.dockerBuild);
       }
     } catch (e) {
       console.error(`[ConfigService] settings.json 解析失败，使用默认配置:`, e);
@@ -360,6 +374,18 @@ export async function saveRegistryConfig(registry: Settings['registry']): Promis
   await enqueueFlush();
 }
 
+export function getDockerBuildSettings(): DockerBuildSettings {
+  return { ...settings.dockerBuild };
+}
+
+export async function saveDockerBuildSettings(dockerBuild: DockerBuildSettings): Promise<void> {
+  settings.dockerBuild = {
+    platform: typeof dockerBuild.platform === 'string' ? dockerBuild.platform : '',
+    gzipImage: dockerBuild.gzipImage !== false,
+  };
+  await enqueueFlush();
+}
+
 // ========== SubApp API ==========
 
 export function getSubApps(): SubApp[] {
@@ -382,9 +408,10 @@ export function getOssConfig(): OssConfig | null {
 }
 
 export async function saveOssConfig(config: OssConfig): Promise<void> {
-  // 如果 secret 是 *** 表示未修改，保留原值
-  if (config.accessKeySecret === '***' && settings.oss?.accessKeySecret) {
-    config.accessKeySecret = settings.oss.accessKeySecret;
+  // 空值或掩码表示未修改，保留已保存的真实密钥
+  const existingSecret = settings.oss?.accessKeySecret;
+  if ((!config.accessKeySecret || config.accessKeySecret === '***') && existingSecret && existingSecret !== '***') {
+    config.accessKeySecret = existingSecret;
   }
   settings.oss = config;
   await enqueueFlush();
@@ -401,10 +428,25 @@ export async function testOss(): Promise<{ connected: boolean; error?: string }>
   return testConn(ossClient);
 }
 
+function requireOss(): { client: NonNullable<ReturnType<typeof createOssClient>>; prefix: string } {
+  if (!settings.oss?.accessKeyId || !settings.oss.bucket || !settings.oss.region) {
+    throw new Error('OSS 未配置，请先保存 Region、Bucket 和 AccessKey');
+  }
+  if (!settings.oss.accessKeySecret || settings.oss.accessKeySecret === '***') {
+    throw new Error('OSS AccessKey Secret 缺失，请重新填写密钥并保存后再同步');
+  }
+  if (!ossClient) {
+    ossClient = createOssClient(settings.oss);
+  }
+  if (!ossClient) {
+    throw new Error('OSS 客户端初始化失败，请检查配置');
+  }
+  return { client: ossClient, prefix: settings.oss.prefix || 'auto-build/templates/' };
+}
+
 export async function syncToOss(): Promise<void> {
-  if (!ossClient || !settings.oss) throw new Error('OSS not configured');
-  const prefix = settings.oss.prefix || 'auto-build/templates/';
-  await syncAllTemplatesToOss(ossClient, prefix);
+  const { client, prefix } = requireOss();
+  await syncAllTemplatesToOss(client, prefix);
 }
 
 /**
@@ -425,12 +467,16 @@ function mergeTemplates(
 }
 
 export async function syncFromOss(): Promise<void> {
-  if (!ossClient || !settings.oss) throw new Error('OSS not configured');
-  const { listTemplatesFromOss } = await import('./ossService.js');
-  const prefix = settings.oss.prefix || 'auto-build/templates/';
+  const { client, prefix } = requireOss();
+  const { listTemplatesFromOss, getJsonFromOss } = await import('./ossService.js');
 
-  const dockerTemplates = await listTemplatesFromOss(ossClient, prefix, 'dockerfile');
-  const nginxTemplates = await listTemplatesFromOss(ossClient, prefix, 'nginx');
+  const dockerTemplates = await listTemplatesFromOss(client, prefix, 'dockerfile');
+  const nginxTemplates = await listTemplatesFromOss(client, prefix, 'nginx');
+  const remoteDockerBuild = await getJsonFromOss<{ platform?: string; gzipImage?: boolean }>(
+    client,
+    prefix,
+    'docker-build.json',
+  );
 
   // 合并本地所有模板与 OSS 模板（OSS 优先覆盖，本地独有保留）
   const mergedDocker = mergeTemplates(settings.dockerfileTemplates, dockerTemplates);
@@ -441,7 +487,18 @@ export async function syncFromOss(): Promise<void> {
   const nginxChanged = mergedNginx.length !== settings.nginxConfigs.length ||
     mergedNginx.some((t, i) => t.key !== settings.nginxConfigs[i]?.key || t.content !== settings.nginxConfigs[i]?.content);
 
-  if (dockerChanged || nginxChanged) {
+  let dockerBuildChanged = false;
+  if (remoteDockerBuild) {
+    const next = {
+      platform: typeof remoteDockerBuild.platform === 'string' ? remoteDockerBuild.platform : settings.dockerBuild.platform,
+      gzipImage: remoteDockerBuild.gzipImage !== false,
+    };
+    dockerBuildChanged =
+      next.platform !== settings.dockerBuild.platform || next.gzipImage !== settings.dockerBuild.gzipImage;
+    if (dockerBuildChanged) settings.dockerBuild = next;
+  }
+
+  if (dockerChanged || nginxChanged || dockerBuildChanged) {
     settings.dockerfileTemplates = mergedDocker;
     settings.nginxConfigs = mergedNginx;
     await enqueueFlush();

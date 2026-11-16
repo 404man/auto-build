@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Modal, Input, Select, App, Spin } from 'antd';
+import { Modal, Input, Select, App, Spin, Switch } from 'antd';
 import { settingsApi } from '../api';
-import type { TemplateListItem, StoredTemplate, RegistrySettings, OssSettings } from '../types/buildConfig';
+import type { TemplateListItem, StoredTemplate, RegistrySettings, OssSettings, DockerBuildSettings } from '../types/buildConfig';
 import MicroAppManager from './MicroAppManager';
 
 /* ────────────────────────── Constants ────────────────────────── */
@@ -135,7 +135,7 @@ interface TemplateCardProps {
 }
 
 function TemplateCard({ type, title, subtitle, iconName }: TemplateCardProps) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [items, setItems] = useState<TemplateListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -187,7 +187,7 @@ function TemplateCard({ type, title, subtitle, iconName }: TemplateCardProps) {
   };
 
   const handleDelete = (item: TemplateListItem) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除',
       content: `确认删除模板 "${item.name}" 吗？此操作不可撤销。`,
       okText: '删除',
@@ -406,6 +406,116 @@ function RegistryForm() {
         </div>
 
         {/* action buttons */}
+        <div className="flex justify-end gap-sm mt-lg pt-md border-t border-outline-variant">
+          <button
+            onClick={handleCancel}
+            className="px-md py-xs rounded-md border border-outline-variant text-on-surface-variant hover:bg-surface-container-highest transition-colors text-[13px]"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-primary-container hover:bg-primary-container/80 text-on-primary-container px-md py-xs rounded-md transition-colors text-[13px] font-medium disabled:opacity-50"
+          >
+            {saving ? '保存中…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PLATFORM_OPTIONS = [
+  { label: 'Host default（不指定 --platform）', value: '' },
+  { label: 'linux/amd64', value: 'linux/amd64' },
+  { label: 'linux/arm64', value: 'linux/arm64' },
+];
+
+function DockerBuildForm() {
+  const { message } = App.useApp();
+  const [form, setForm] = useState<DockerBuildSettings>({ platform: '', gzipImage: true });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    settingsApi.getDockerBuild()
+      .then((res) => {
+        const d = res.data.data;
+        if (!d) return;
+        setForm({
+          platform: d.platform || '',
+          gzipImage: d.gzipImage !== false,
+        });
+      })
+      .catch(() => message.error('加载 Docker 构建配置失败'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await settingsApi.updateDockerBuild(form);
+      message.success('Docker 构建配置已保存（可随 OSS 同步）');
+    } catch { /* interceptor */ } finally { setSaving(false); }
+  };
+
+  const handleCancel = () => {
+    settingsApi.getDockerBuild()
+      .then((res) => {
+        const d = res.data.data;
+        if (!d) return;
+        setForm({ platform: d.platform || '', gzipImage: d.gzipImage !== false });
+      })
+      .catch(() => message.error('重置失败'));
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-surface-container rounded-lg border border-outline-variant p-lg text-center">
+        <Spin /> <span className="text-on-surface-variant text-[13px] ml-sm">加载中…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-surface-container rounded-lg border border-outline-variant overflow-hidden relative">
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-secondary" />
+
+      <div className="px-md pt-lg pb-md">
+        <div className="flex items-center gap-sm mb-lg">
+          <span className="material-symbols-outlined text-primary text-[22px]">developer_board</span>
+          <h3 className="text-on-surface font-body-lg font-semibold">Docker Build Defaults</h3>
+        </div>
+
+        <div className="flex flex-col gap-md">
+          <div>
+            <label className="font-label-mono text-label-mono text-on-surface-variant block mb-xs">Build Platform</label>
+            <Select
+              value={form.platform}
+              onChange={(val) => setForm((prev) => ({ ...prev, platform: val }))}
+              options={PLATFORM_OPTIONS}
+              className="w-full"
+            />
+            <p className="text-on-surface-variant text-[11px] mt-xs">
+              对应 <code className="font-label-mono">docker build --platform</code>，构建页可临时覆盖。
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="font-label-mono text-label-mono text-on-surface-variant block">Gzip 压缩镜像</label>
+              <p className="text-on-surface-variant text-[11px] mt-xs">
+                下载镜像时使用 <code className="font-label-mono">docker save | gzip</code>，生成 .tar.gz
+              </p>
+            </div>
+            <Switch
+              checked={form.gzipImage}
+              onChange={(checked) => setForm((prev) => ({ ...prev, gzipImage: checked }))}
+            />
+          </div>
+        </div>
+
         <div className="flex justify-end gap-sm mt-lg pt-md border-t border-outline-variant">
           <button
             onClick={handleCancel}
@@ -677,11 +787,11 @@ function OssForm() {
 /* ────────────────────────── CacheManagement ────────────────────────── */
 
 function CacheManagement() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [clearing, setClearing] = useState(false);
 
   const handleClear = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认清空缓存',
       content: '此操作将清空 ~/.auto-build/artifacts/ 目录下的所有构建和下载缓存文件，不可恢复。',
       okText: '确认清空',
@@ -762,6 +872,7 @@ export default function SettingsPage() {
           {/* Right column — Registry + OSS + Cache */}
           <div className="flex flex-col gap-lg">
             <RegistryForm />
+            <DockerBuildForm />
             <OssForm />
             <CacheManagement />
           </div>

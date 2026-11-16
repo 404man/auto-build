@@ -6,7 +6,7 @@ import { listTemplates, getTemplate } from './configService.js';
 // ========== 常量 ==========
 
 const MAX_DOCKERFILE_SIZE = 64 * 1024; // 64KB
-const DOCKER_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 分钟
+const DOCKER_BUILD_TIMEOUT_MS = 40 * 60 * 1000; // 40 分钟
 
 /** 危险 Dockerfile 指令正则 */
 const DANGEROUS_PATTERNS = [
@@ -160,7 +160,7 @@ export function getNginxConfig(key: string) {
 export async function writeDockerfile(buildDir: string, templateName: string, customContent?: string): Promise<void> {
   let content: string;
 
-  if (templateName === 'custom' && customContent) {
+  if (customContent) {
     content = customContent;
   } else {
     const tpl = getTemplate('dockerfile', templateName);
@@ -181,7 +181,7 @@ export async function writeDockerfile(buildDir: string, templateName: string, cu
 export async function writeNginxConfig(buildDir: string, configName: string, customContent?: string): Promise<void> {
   let content: string;
 
-  if (configName === 'custom' && customContent) {
+  if (customContent) {
     content = customContent;
   } else {
     const cfg = getTemplate('nginx', configName);
@@ -221,8 +221,13 @@ export async function dockerBuild(
   tag: string,
   dockerfilePath?: string,
   onOutput?: (type: 'stdout' | 'stderr', data: string) => void,
+  platform?: string,
 ): Promise<{ code: number }> {
   const args = ['build', '-t', `${imageName}:${tag}`];
+
+  if (platform?.trim()) {
+    args.push('--platform', platform.trim());
+  }
 
   if (dockerfilePath) {
     args.push('-f', dockerfilePath);
@@ -304,4 +309,37 @@ export async function dockerLogout(registryUrl: string): Promise<void> {
   if (result.code !== 0) {
     throw new Error(`Docker logout 失败: ${result.stderr.trim() || result.stdout.trim()}`);
   }
+}
+
+const IMAGE_REF_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,255}$/;
+
+export function assertSafeImageRef(imageRef: string): void {
+  if (!IMAGE_REF_RE.test(imageRef) || imageRef.includes('..')) {
+    throw new Error(`Invalid image reference: ${imageRef}`);
+  }
+}
+
+export async function dockerImageExists(imageRef: string): Promise<boolean> {
+  assertSafeImageRef(imageRef);
+  return new Promise((resolve) => {
+    const child = spawn('docker', ['images', '-q', imageRef], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, FORCE_COLOR: '0' },
+    });
+    let out = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      out += chunk.toString();
+    });
+    child.on('error', () => resolve(false));
+    child.on('close', (code) => resolve(code === 0 && out.trim().length > 0));
+  });
+}
+
+/** 流式 docker save，调用方负责消费 stdout / 处理退出码 */
+export function spawnDockerSave(imageRef: string): ChildProcess {
+  assertSafeImageRef(imageRef);
+  return spawn('docker', ['save', imageRef], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, FORCE_COLOR: '0' },
+  });
 }

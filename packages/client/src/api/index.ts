@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { getGlobalMessage } from '../utils/message';
-import type { DockerTemplate, DockerTemplateDetail, NginxConfig, NginxConfigDetail, DockerBuildOptions, SettingsData, StoredTemplate, TemplateListItem, RegistrySettings, OssSettings } from '../types/buildConfig';
+import type { DockerTemplate, DockerTemplateDetail, NginxConfig, NginxConfigDetail, DockerBuildOptions, SettingsData, StoredTemplate, TemplateListItem, RegistrySettings, OssSettings, DockerBuildSettings } from '../types/buildConfig';
 import type { AxiosResponse } from 'axios';
 
 /* ---------- SubApp (Micro Frontend) ---------- */
@@ -99,6 +99,10 @@ export const buildApi = {
   download(buildId: string) {
     window.open(`/api/build/download/${buildId}`, '_blank');
   },
+  downloadImage(buildId: string, gzip?: boolean) {
+    const q = gzip === undefined ? '' : `?gzip=${gzip ? '1' : '0'}`;
+    window.open(`/api/build/download-image/${buildId}${q}`, '_blank');
+  },
   cancel(buildId: string) {
     return http.post<{ success: boolean; data: { message: string } }>(
       `/build/cancel/${buildId}`,
@@ -176,6 +180,11 @@ export const settingsApi = {
     http.get('/settings/registry'),
   updateRegistry: (data: RegistrySettings): Promise<AxiosResponse<{ success: boolean; data: RegistrySettings }>> =>
     http.put('/settings/registry', data),
+
+  getDockerBuild: (): Promise<AxiosResponse<{ success: boolean; data: DockerBuildSettings }>> =>
+    http.get('/settings/docker-build'),
+  updateDockerBuild: (data: DockerBuildSettings): Promise<AxiosResponse<{ success: boolean; data: DockerBuildSettings }>> =>
+    http.put('/settings/docker-build', data),
 
   // OSS
   getOss: (): Promise<AxiosResponse<{ success: boolean; data: OssSettings }>> =>

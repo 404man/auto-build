@@ -29,6 +29,8 @@ export interface BuildCenterProps {
   cancelBuild: () => void;
   downloadProject: (buildId: string) => void;
   downloadAll: () => void;
+  downloadImage: (buildId: string) => void;
+  downloadAllImages: () => void;
   // handlers
   handleProjectSelect: (selected: SelectedProject[]) => void;
   handleBranchSelect: (projectPath: string, branch: string) => void;
@@ -59,6 +61,8 @@ export default function BuildCenter(props: BuildCenterProps) {
     cancelBuild,
     downloadProject,
     downloadAll,
+    downloadImage,
+    downloadAllImages,
     handleProjectSelect,
     handleBranchSelect,
     handleChangeProject,
@@ -148,6 +152,8 @@ export default function BuildCenter(props: BuildCenterProps) {
                 onCancel={cancelBuild}
                 onDownloadProject={downloadProject}
                 onDownloadAll={downloadAll}
+                onDownloadImage={downloadImage}
+                onDownloadAllImages={downloadAllImages}
               />
               <LogViewer
                 logs={logs}

@@ -18,6 +18,7 @@ export interface ProjectBuildState {
   status: BatchProjectStatus;
   buildId: string;
   packageManager?: string;
+  buildMode?: 'static' | 'docker';
 }
 
 interface UseBuildReturn {
@@ -39,9 +40,11 @@ interface UseBuildReturn {
   batchId: string | null;
   batchComplete: boolean;
   cacheClearedAt: number;
-  startBatchBuild: (projects: Array<{ name: string; path: string; branch?: string }>, commands?: { installCommand?: string; buildCommand?: string; nodeVersion?: string }, dockerOptions?: DockerBuildOptions | null) => Promise<void>;
+  startBatchBuild: (projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>, commands?: { installCommand?: string; buildCommand?: string; nodeVersion?: string }, dockerOptions?: DockerBuildOptions | null) => Promise<void>;
   downloadProject: (buildId: string) => void;
   downloadAll: () => void;
+  downloadImage: (buildId: string, gzip?: boolean) => void;
+  downloadAllImages: (gzip?: boolean) => void;
   resetBuildState: () => void;
   // Docker options (set by UI, passed to backend)
   dockerOptions: DockerBuildOptions | null;
@@ -148,7 +151,7 @@ export function useBuild(): UseBuildReturn {
   }, [cleanup, dockerOptions]);
 
   // Batch build
-  const startBatchBuild = useCallback(async (projects: Array<{ name: string; path: string; branch?: string }>, commands?: { installCommand?: string; buildCommand?: string; nodeVersion?: string }, dockerOpts?: DockerBuildOptions | null) => {
+  const startBatchBuild = useCallback(async (projects: Array<{ name: string; path: string; branch?: string; dockerOptions?: DockerBuildOptions }>, commands?: { installCommand?: string; buildCommand?: string; nodeVersion?: string }, dockerOpts?: DockerBuildOptions | null) => {
     cleanup();
     setIsBatch(true);
     setStatus('idle');
@@ -167,7 +170,13 @@ export function useBuild(): UseBuildReturn {
 
     // Initialize project states
     setBatchProjects(
-      projects.map((p) => ({ name: p.name, path: p.path, status: 'pending', buildId: '' })),
+      projects.map((p) => ({
+        name: p.name,
+        path: p.path,
+        status: 'pending',
+        buildId: '',
+        buildMode: (p.dockerOptions ?? dockerOpts) ? 'docker' : 'static',
+      })),
     );
 
     const socket = io({ transports: ['websocket', 'polling'] });
@@ -179,7 +188,10 @@ export function useBuild(): UseBuildReturn {
 
     try {
       const effectiveDockerOpts = dockerOpts ?? dockerOptions;
-      const batchProjectsWithDocker = projects.map((p) => ({ ...p, dockerOptions: effectiveDockerOpts ?? undefined }));
+      const batchProjectsWithDocker = projects.map((p) => ({
+        ...p,
+        dockerOptions: p.dockerOptions ?? effectiveDockerOpts ?? undefined,
+      }));
       const res = await buildApi.startBatch(batchProjectsWithDocker, socket.id!, commands?.installCommand, commands?.buildCommand, commands?.nodeVersion);
       const bId = res.data.data.batchId;
       const respBuildIds: string[] = res.data.data.buildIds ?? [];
@@ -308,6 +320,20 @@ export function useBuild(): UseBuildReturn {
     }
   }, [batchProjects]);
 
+  const downloadImage = useCallback((pBuildId: string, gzip?: boolean) => {
+    if (pBuildId) {
+      buildApi.downloadImage(pBuildId, gzip);
+    }
+  }, []);
+
+  const downloadAllImages = useCallback((gzip?: boolean) => {
+    for (const p of batchProjects) {
+      if (p.status === 'completed' && p.buildId && p.buildMode === 'docker') {
+        buildApi.downloadImage(p.buildId, gzip);
+      }
+    }
+  }, [batchProjects]);
+
   const clearLogs = useCallback(() => {
     setLogs([]);
   }, []);
@@ -332,6 +358,8 @@ export function useBuild(): UseBuildReturn {
     startBatchBuild,
     downloadProject,
     downloadAll,
+    downloadImage,
+    downloadAllImages,
     resetBuildState,
     dockerOptions,
     setDockerOptions,

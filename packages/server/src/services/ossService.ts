@@ -135,8 +135,47 @@ export async function deleteTemplateFromOss(
 }
 
 /**
- * 测试 OSS 连接是否正常
+ * 写入任意 JSON 到 OSS 前缀下
  */
+export async function putJsonToOss(
+  client: OSS,
+  prefix: string,
+  filename: string,
+  data: unknown,
+): Promise<void> {
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    throw new Error(`Invalid OSS filename: ${filename}`);
+  }
+  try {
+    const ossKey = `${prefix}${filename}`;
+    await client.put(ossKey, Buffer.from(JSON.stringify(data, null, 2)));
+  } catch (e) {
+    console.warn(`[OssService] putJsonToOss 失败:`, e);
+  }
+}
+
+/**
+ * 从 OSS 读取 JSON，不存在返回 null
+ */
+export async function getJsonFromOss<T>(
+  client: OSS,
+  prefix: string,
+  filename: string,
+): Promise<T | null> {
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    throw new Error(`Invalid OSS filename: ${filename}`);
+  }
+  try {
+    const res = await client.get(`${prefix}${filename}`);
+    const content = (res.content as Buffer).toString('utf-8');
+    return JSON.parse(content) as T;
+  } catch (e: any) {
+    if (e?.status === 404 || e?.code === 'NoSuchKey') return null;
+    console.warn(`[OssService] getJsonFromOss 失败:`, e);
+    return null;
+  }
+}
+
 export async function testOssConnection(client: OSS): Promise<{ connected: boolean; error?: string }> {
   try {
     const q: OSS.ListObjectsQuery = { 'max-keys': 1 };

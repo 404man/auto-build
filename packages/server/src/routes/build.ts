@@ -12,7 +12,11 @@ import {
   getBatchBuildTask,
   getZipPath,
   getCacheClearedAt,
+  getDockerImageMeta,
 } from '../services/buildService.js';
+import { dockerImageExists, spawnDockerSave } from '../services/dockerService.js';
+import { getDockerBuildSettings } from '../services/configService.js';
+import { createGzip } from 'node:zlib';
 
 const buildRouter = new Router();
 
@@ -111,6 +115,94 @@ buildRouter.get('/download/:buildId', async (ctx: any) => {
         error: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+});
+
+const BUILD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseGzipQuery(raw: unknown, fallback: boolean): boolean {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (v === '0' || v === 'false') return false;
+  if (v === '1' || v === 'true') return true;
+  return fallback;
+}
+
+function safeDownloadName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'image';
+}
+
+// ========== GET /api/build/download-image/:buildId ==========
+// 流式 docker save，?gzip=1 输出 .tar.gz
+buildRouter.get('/download-image/:buildId', async (ctx: any) => {
+  const { buildId } = ctx.params;
+  if (!BUILD_ID_RE.test(buildId)) {
+    ctx.status = 404;
+    ctx.body = { success: false, error: '构建产物不存在或已过期' };
+    return;
+  }
+
+  const task = getBuildTask(buildId);
+  if (task && task.status !== 'completed') {
+    ctx.status = 400;
+    ctx.body = { success: false, error: `构建任务状态为: ${task.status}，无法下载镜像` };
+    return;
+  }
+
+  const meta = await getDockerImageMeta(buildId);
+  if (!meta) {
+    ctx.status = 404;
+    ctx.body = { success: false, error: '未找到 Docker 镜像记录，请确认本次为镜像构建' };
+    return;
+  }
+
+  const imageRef = `${meta.image}:${meta.tag}`;
+  const exists = await dockerImageExists(imageRef);
+  if (!exists) {
+    ctx.status = 404;
+    ctx.body = { success: false, error: `本地不存在镜像 ${imageRef}，请重新构建后再下载` };
+    return;
+  }
+
+  const settings = getDockerBuildSettings();
+  const gzip = parseGzipQuery(ctx.query.gzip, meta.gzipImage ?? settings.gzipImage !== false);
+  const fileBase = safeDownloadName(`${meta.image}_${meta.tag}`);
+
+  let child;
+  try {
+    child = spawnDockerSave(imageRef);
+  } catch (err) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: err instanceof Error ? err.message : String(err) };
+    return;
+  }
+
+  if (!child.stdout) {
+    child.kill('SIGTERM');
+    ctx.status = 500;
+    ctx.body = { success: false, error: 'docker save 无法启动' };
+    return;
+  }
+
+  ctx.req.on('close', () => {
+    if (!child.killed) child.kill('SIGTERM');
+  });
+
+  child.stderr?.on('data', (chunk: Buffer) => {
+    console.warn(`[docker save] ${chunk.toString()}`);
+  });
+
+  ctx.status = 200;
+  if (gzip) {
+    ctx.set('Content-Type', 'application/gzip');
+    ctx.set('Content-Disposition', `attachment; filename="${fileBase}.tar.gz"`);
+    const gzipStream = createGzip({ level: 6 });
+    child.stdout.pipe(gzipStream);
+    ctx.body = gzipStream;
+  } else {
+    ctx.set('Content-Type', 'application/x-tar');
+    ctx.set('Content-Disposition', `attachment; filename="${fileBase}.tar"`);
+    ctx.body = child.stdout;
   }
 });
 

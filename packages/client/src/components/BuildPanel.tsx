@@ -20,6 +20,8 @@ interface BuildPanelProps {
   onCancel: () => void;
   onDownloadProject: (buildId: string) => void;
   onDownloadAll: () => void;
+  onDownloadImage?: (buildId: string) => void;
+  onDownloadAllImages?: () => void;
 }
 
 type OverallStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -53,10 +55,13 @@ export default function BuildPanel({
   onCancel,
   onDownloadProject,
   onDownloadAll,
+  onDownloadImage,
+  onDownloadAllImages,
 }: BuildPanelProps) {
   const isPreviewMode = batchProjects.length === 0;
   const isRunning = batchProjects.some((p) => p.status === 'building');
   const completedCount = batchProjects.filter((p) => p.status === 'completed').length;
+  const dockerCompletedCount = batchProjects.filter((p) => p.status === 'completed' && p.buildMode === 'docker').length;
   const hasFailed = batchProjects.some((p) => p.status === 'failed');
 
   // Derive overall status
@@ -116,7 +121,16 @@ export default function BuildPanel({
             className="bg-secondary-container text-on-secondary-container hover:bg-secondary hover:text-on-secondary-container transition-colors duration-150 py-xs px-md rounded-lg font-body-sm font-medium flex items-center justify-center gap-xs w-full active:scale-95"
           >
             <span className="material-symbols-outlined text-lg">download</span>
-            全部下载 ({completedCount})
+            全部下载 dist ({completedCount})
+          </button>
+        )}
+        {batchComplete && dockerCompletedCount > 0 && onDownloadAllImages && (
+          <button
+            onClick={onDownloadAllImages}
+            className="bg-secondary-container text-on-secondary-container hover:bg-secondary hover:text-on-secondary-container transition-colors duration-150 py-xs px-md rounded-lg font-body-sm font-medium flex items-center justify-center gap-xs w-full active:scale-95"
+          >
+            <span className="material-symbols-outlined text-lg">deploy</span>
+            全部下载镜像 ({dockerCompletedCount})
           </button>
         )}
 
@@ -172,13 +186,24 @@ export default function BuildPanel({
                     <span className="material-symbols-outlined text-sm">folder_open</span>
                   </button>
                   {bp?.status === 'completed' && bp.buildId && (
-                    <button
-                      onClick={() => onDownloadProject(bp.buildId)}
-                      className="text-on-surface-variant hover:text-primary transition-colors p-1 rounded-full hover:bg-surface-container-highest"
-                      title="下载"
-                    >
-                      <span className="material-symbols-outlined text-sm">download</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => onDownloadProject(bp.buildId)}
+                        className="text-on-surface-variant hover:text-primary transition-colors p-1 rounded-full hover:bg-surface-container-highest"
+                        title="下载 dist"
+                      >
+                        <span className="material-symbols-outlined text-sm">download</span>
+                      </button>
+                      {bp.buildMode === 'docker' && onDownloadImage && (
+                        <button
+                          onClick={() => onDownloadImage(bp.buildId)}
+                          className="text-on-surface-variant hover:text-primary transition-colors p-1 rounded-full hover:bg-surface-container-highest"
+                          title="下载镜像"
+                        >
+                          <span className="material-symbols-outlined text-sm">deploy</span>
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

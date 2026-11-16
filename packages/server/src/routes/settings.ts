@@ -7,6 +7,8 @@ import {
   deleteTemplate,
   getRegistryConfig,
   saveRegistryConfig,
+  getDockerBuildSettings,
+  saveDockerBuildSettings,
   getOssConfig,
   saveOssConfig,
   testOss,
@@ -31,12 +33,14 @@ settingsRouter.get('/api/settings', async (ctx: any) => {
     const dockerfileTemplates = listTemplates('dockerfile');
     const nginxConfigs = listTemplates('nginx');
     const registry = getRegistryConfig();
+    const dockerBuild = getDockerBuildSettings();
     ctx.body = {
       success: true,
       data: {
         dockerfileTemplates,
         nginxConfigs,
         registry: { ...registry, secret: '***' },
+        dockerBuild,
       },
     };
   } catch (err) {
@@ -235,6 +239,40 @@ settingsRouter.put('/api/settings/registry', async (ctx: any) => {
   }
 });
 
+const DOCKER_PLATFORMS = new Set(['', 'linux/amd64', 'linux/arm64']);
+
+// ========== Docker 构建默认配置（平台 / 镜像 gzip，随 OSS 同步） ==========
+
+settingsRouter.get('/api/settings/docker-build', async (ctx: any) => {
+  try {
+    ctx.body = { success: true, data: getDockerBuildSettings() };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
+settingsRouter.put('/api/settings/docker-build', async (ctx: any) => {
+  try {
+    const { platform, gzipImage } = ctx.request.body ?? {};
+    if (typeof platform !== 'string' || !DOCKER_PLATFORMS.has(platform)) {
+      ctx.status = 400;
+      ctx.body = { success: false, error: 'platform must be empty, linux/amd64, or linux/arm64' };
+      return;
+    }
+    if (typeof gzipImage !== 'boolean') {
+      ctx.status = 400;
+      ctx.body = { success: false, error: 'gzipImage must be boolean' };
+      return;
+    }
+    await saveDockerBuildSettings({ platform, gzipImage });
+    ctx.body = { success: true, data: { platform, gzipImage } };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { success: false, error: (err as Error).message };
+  }
+});
+
 // ========== OSS 配置 ==========
 
 settingsRouter.get('/api/settings/oss', async (ctx: any) => {
@@ -260,14 +298,10 @@ settingsRouter.patch('/api/settings/oss', async (ctx: any) => {
     const current = getOssConfig();
     const merged = { ...current, ...patch };
 
-    // secret 保护：如果 patch 中 secret 是 *** 或 undefined，保留原值
-    if ((!patch.accessKeySecret || patch.accessKeySecret === '***')) {
-      if (current && current.accessKeySecret && current.accessKeySecret !== '***') {
-        merged.accessKeySecret = current.accessKeySecret;
-      } else {
-        // 首次配置时未提供 secret
-        delete merged.accessKeySecret;
-      }
+    // getOssConfig() 只返回掩码 ***，不能据此判断内存里有没有真实密钥。
+    // 未提交新密钥时传 ***，由 saveOssConfig 保留已保存的值。
+    if (!patch.accessKeySecret || patch.accessKeySecret === '***') {
+      merged.accessKeySecret = '***';
     }
 
     // 必填字段校验

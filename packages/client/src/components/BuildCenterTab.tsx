@@ -28,6 +28,8 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
     cancelBuild,
     downloadProject,
     downloadAll,
+    downloadImage,
+    downloadAllImages,
     startBatchBuild,
     resetBuildState,
     logs,
@@ -97,31 +99,51 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
   );
 
   const handleStartBuild = useCallback(() => {
-    const dockerOpts: DockerBuildOptions | null = buildConfig && buildConfig.buildMode === 'docker'
-      ? {
-          buildMode: 'docker',
-          dockerfileTemplate: buildConfig.dockerfileTemplate,
-          customDockerfile: buildConfig.customDockerfile || undefined,
-          nginxConfig: buildConfig.nginxConfig,
-          customNginxConfig: buildConfig.customNginxConfig || undefined,
-          ...(buildConfig.pushEnabled
-            ? { registry: { url: buildConfig.registryUrl, imageName: buildConfig.imageName } }
-            : {}),
-        }
-      : null;
+    const cfg = buildConfig;
+    const isDocker = cfg?.buildMode === 'docker';
+
+    const parseImage = (fallbackName: string) => {
+      const rawName = (cfg?.imageName || fallbackName || '').trim();
+      const rawTag = (cfg?.imageTag || '').trim();
+      if (rawTag) return { imageName: rawName || fallbackName || 'auto-build-app', tag: rawTag };
+      const idx = rawName.lastIndexOf(':');
+      if (idx > 0 && !rawName.slice(idx + 1).includes('/')) {
+        return { imageName: rawName.slice(0, idx) || fallbackName || 'auto-build-app', tag: rawName.slice(idx + 1) };
+      }
+      return { imageName: rawName || fallbackName || 'auto-build-app', tag: 'latest' };
+    };
 
     startBatchBuild(
-      projects.map((p) => ({
-        name: p.name,
-        path: p.path,
-        branch: projectBranches[p.path],
-      })),
+      projects.map((p) => {
+        const parsed = parseImage(p.name);
+        const dockerOpts: DockerBuildOptions | undefined = isDocker && cfg
+          ? {
+              buildMode: 'docker',
+              dockerfileTemplate: cfg.dockerfileTemplate,
+              customDockerfile: cfg.customDockerfile || undefined,
+              nginxConfig: cfg.nginxConfig,
+              customNginxConfig: cfg.customNginxConfig || undefined,
+              platform: cfg.platform || undefined,
+              gzipImage: cfg.gzipImage !== false,
+              registry: {
+                url: cfg.pushEnabled ? cfg.registryUrl : '',
+                imageName: parsed.imageName,
+                tag: parsed.tag,
+              },
+            }
+          : undefined;
+        return {
+          name: p.name,
+          path: p.path,
+          branch: projectBranches[p.path],
+          dockerOptions: dockerOpts,
+        };
+      }),
       {
-        installCommand: buildConfig?.installCommand || '',
-        buildCommand: buildConfig?.buildCommand || '',
-        nodeVersion: buildConfig?.buildMode === 'static' ? (buildConfig.nodeVersion || '') : '',
+        installCommand: cfg?.installCommand || '',
+        buildCommand: cfg?.buildCommand || '',
+        nodeVersion: cfg?.buildMode === 'static' ? (cfg.nodeVersion || '') : '',
       },
-      dockerOpts,
     );
   }, [projects, projectBranches, startBatchBuild, buildConfig]);
 
@@ -143,6 +165,8 @@ export default function BuildCenterTab({ tabId: _tabId, initialProjects, onNameC
       cancelBuild={cancelBuild}
       downloadProject={downloadProject}
       downloadAll={downloadAll}
+      downloadImage={(id) => downloadImage(id, buildConfig?.gzipImage !== false)}
+      downloadAllImages={() => downloadAllImages(buildConfig?.gzipImage !== false)}
       handleProjectSelect={handleProjectSelect}
       handleBranchSelect={handleBranchSelect}
       handleChangeProject={handleChangeProject}

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { stat, unlink, access, readFile, copyFile, mkdir } from 'node:fs/promises';
+import { stat, unlink, access, readFile, copyFile, mkdir, rename, writeFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -8,6 +8,7 @@ import archiver from 'archiver';
 import treeKill from 'tree-kill';
 import { getIo } from './io.js';
 import { buildNodeVersionEnv } from './nvmService.js';
+import { getDockerBuildSettings } from './configService.js';
 
 // ========== 类型定义 ==========
 
@@ -35,6 +36,10 @@ export interface DockerBuildOptions {
   customDockerfile?: string;
   nginxConfig?: string;
   customNginxConfig?: string;
+  /** docker build --platform，例如 linux/arm64；空字符串表示宿主机默认 */
+  platform?: string;
+  /** 下载镜像时是否 gzip 压缩，默认跟随 Settings */
+  gzipImage?: boolean;
   registry?: {
     url: string;
     imageName: string;
@@ -77,9 +82,22 @@ export function setCacheClearedAt(ts: number): void {
 // ========== 超时与清理配置 ==========
 
 const BUILD_TIMEOUT_MS = 10 * 60 * 1000; // 10 分钟
+const DOCKER_MODE_TIMEOUT_MS = 45 * 60 * 1000; // docker 含镜像构建，给足时间
 const TASK_CLEANUP_DELAY = 24 * 60 * 60 * 1000; // 24 小时
 
 // ========== 辅助函数 ==========
+
+const OPENSSL_LEGACY_FLAG = '--openssl-legacy-provider';
+
+function mergeNodeOptions(...parts: Array<string | undefined>): string {
+  const tokens = parts
+    .filter((p): p is string => !!p && p.trim().length > 0)
+    .flatMap((p) => p.split(/\s+/).filter(Boolean));
+  if (!tokens.includes(OPENSSL_LEGACY_FLAG)) {
+    tokens.push(OPENSSL_LEGACY_FLAG);
+  }
+  return tokens.join(' ');
+}
 
 /**
  * 封装 spawn，立即返回 child 引用和 exitPromise
@@ -92,10 +110,16 @@ function spawnCommand(
   onOutput: (type: 'stdout' | 'stderr', data: string) => void,
   extraEnv?: Record<string, string>,
 ): { child: ChildProcess; exitPromise: Promise<{ code: number }> } {
+  const extra = extraEnv ?? {};
   const child = spawn(command, args, {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, FORCE_COLOR: '0', ...extraEnv },
+    env: {
+      ...process.env,
+      FORCE_COLOR: '0',
+      ...extra,
+      NODE_OPTIONS: mergeNodeOptions(process.env.NODE_OPTIONS, extra.NODE_OPTIONS),
+    },
   });
 
   child.stdout?.on('data', (chunk: Buffer) => {
@@ -152,7 +176,7 @@ function validateProjectPath(projectPath: string): void {
 /**
  * 检测项目使用的包管理器
  * 根据 lock 文件判断：pnpm-lock.yaml → pnpm, yarn.lock → yarn, package-lock.json → npm
- * 都没有则默认 pnpm
+ * 都没有则看 package.json#packageManager，仍没有则默认 npm
  */
 export async function detectPackageManager(projectPath: string): Promise<PackageManager> {
   const lockFiles: Array<{ file: string; pm: PackageManager }> = [
@@ -170,15 +194,63 @@ export async function detectPackageManager(projectPath: string): Promise<Package
     }
   }
 
-  // 默认使用 pnpm
-  return 'pnpm';
+  try {
+    const pkg = JSON.parse(await readFile(join(projectPath, 'package.json'), 'utf-8')) as {
+      packageManager?: string;
+    };
+    const spec = (pkg.packageManager || '').toLowerCase();
+    if (spec.startsWith('pnpm')) return 'pnpm';
+    if (spec.startsWith('yarn')) return 'yarn';
+    if (spec.startsWith('npm')) return 'npm';
+  } catch {
+    // 无 package.json 或解析失败
+  }
+
+  return 'npm';
 }
 
 /**
  * 根据包管理器生成 install 命令
  */
 function getInstallCommand(pm: PackageManager): { command: string; args: string[] } {
+  if (pm === 'npm') {
+    return { command: 'npm', args: ['install', '--legacy-peer-deps'] };
+  }
   return { command: pm, args: ['install'] };
+}
+
+function ensureNpmLegacyPeerDeps(parsed: {
+  command: string;
+  args: string[];
+}): { command: string; args: string[] } {
+  if (parsed.command !== 'npm') return parsed;
+  const sub = parsed.args[0];
+  if (sub !== 'install' && sub !== 'ci') return parsed;
+  if (parsed.args.includes('--legacy-peer-deps')) return parsed;
+  return { command: parsed.command, args: [...parsed.args, '--legacy-peer-deps'] };
+}
+
+/**
+ * 部分仓库把 pnpm 配置误写成 pnpm-workspace.yaml 且缺少 packages，pnpm 9 会直接失败。
+ * 安装前将这类文件改名，避免误当 workspace。
+ */
+async function sanitizeInvalidPnpmWorkspace(
+  buildDir: string,
+  onOutput: (type: 'stdout' | 'stderr', data: string) => void,
+): Promise<void> {
+  const wsPath = join(buildDir, 'pnpm-workspace.yaml');
+  try {
+    const content = await readFile(wsPath, 'utf-8');
+    if (/^packages\s*:/m.test(content)) return;
+    const bakPath = join(buildDir, 'pnpm-workspace.yaml.auto-dist.bak');
+    await rename(wsPath, bakPath);
+    onOutput(
+      'stdout',
+      '[auto-dist] 检测到非法 pnpm-workspace.yaml（缺少 packages），已暂时改名为 pnpm-workspace.yaml.auto-dist.bak\n',
+    );
+  } catch {
+    // 文件不存在或无法读取，忽略
+  }
 }
 
 /**
@@ -204,15 +276,31 @@ function scheduleTaskCleanup(buildId: string): void {
 // ========== 核心构建函数 ==========
 
 /**
- * 解析自定义命令字符串为 command + args
+ * 解析自定义命令字符串为 command + args + 前置环境变量
  * 例如: "npm install" => { command: 'npm', args: ['install'] }
- *       "npm run build" => { command: 'npm', args: ['run', 'build'] }
+ *       "NODE_OPTIONS=--max-old-space-size=4096 npm run build"
  */
-function parseCustomCommand(cmd: string): { command: string; args: string[] } | null {
+function parseCustomCommand(cmd: string): {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+} | null {
   const trimmed = cmd.trim();
   if (!trimmed) return null;
   const parts = trimmed.split(/\s+/);
-  return { command: parts[0], args: parts.slice(1) };
+  const env: Record<string, string> = {};
+  let i = 0;
+  while (i < parts.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(parts[i])) {
+    const eq = parts[i].indexOf('=');
+    env[parts[i].slice(0, eq)] = parts[i].slice(eq + 1);
+    i += 1;
+  }
+  if (i >= parts.length) return null;
+  return {
+    command: parts[i],
+    args: parts.slice(i + 1),
+    env: Object.keys(env).length > 0 ? env : undefined,
+  };
 }
 
 /**
@@ -286,7 +374,7 @@ export async function runBuild(
         treeKill(task.process.pid, 'SIGKILL');
       }
       task.status = 'failed';
-      task.error = '构建超时（10分钟）';
+      task.error = dockerOptions?.buildMode === 'docker' ? '构建超时（45分钟）' : '构建超时（10分钟）';
       clearTimeout_();
       io.to(socketId).emit('build:error', { buildId, error: task.error, projectName });
       // 清理 worktree
@@ -299,7 +387,7 @@ export async function runBuild(
       }
       scheduleTaskCleanup(buildId);
     }
-  }, BUILD_TIMEOUT_MS);
+  }, dockerOptions?.buildMode === 'docker' ? DOCKER_MODE_TIMEOUT_MS : BUILD_TIMEOUT_MS);
 
   // 日志推送回调
   const onOutput = (type: 'stdout' | 'stderr', data: string) => {
@@ -347,15 +435,25 @@ export async function runBuild(
       nodeEnv = await buildNodeVersionEnv(nodeVersion);
       onOutput('stdout', `[auto-dist] 使用 nvm Node 版本: ${nodeVersion.trim()}\n`);
     }
+    onOutput('stdout', `[auto-dist] 构建环境已注入 NODE_OPTIONS=${OPENSSL_LEGACY_FLAG}\n`);
+
+    await sanitizeInvalidPnpmWorkspace(buildDir, onOutput);
 
     // Step 1: {pm} install
     const parsedCustomInstall = customInstallCommand ? parseCustomCommand(customInstallCommand) : null;
-    const installCmd = parsedCustomInstall || getInstallCommand(packageManager);
+    const installCmd = ensureNpmLegacyPeerDeps(
+      parsedCustomInstall
+        ? { command: parsedCustomInstall.command, args: parsedCustomInstall.args }
+        : getInstallCommand(packageManager),
+    );
     task.status = 'installing';
     io.to(socketId).emit('build:status', { buildId, status: 'installing', packageManager, projectName });
     onOutput('stdout', `[auto-dist] 检测到包管理器: ${packageManager}\n`);
     if (parsedCustomInstall) {
       onOutput('stdout', `[auto-dist] 使用自定义安装命令: ${customInstallCommand}\n`);
+    }
+    if (installCmd.command === 'npm' && installCmd.args.includes('--legacy-peer-deps')) {
+      onOutput('stdout', `[auto-dist] npm 安装使用 --legacy-peer-deps\n`);
     }
     onOutput('stdout', `[auto-dist] 开始执行 ${installCmd.command} ${installCmd.args.join(' ')}...\n`);
 
@@ -390,6 +488,7 @@ export async function runBuild(
     const installEnv = {
       ...(npmRegistry ? { NPM_CONFIG_REGISTRY: npmRegistry } : {}),
       ...nodeEnv,
+      ...parsedCustomInstall?.env,
     };
     const installSpawn = spawnCommand(
       installCmd.command,
@@ -425,7 +524,9 @@ export async function runBuild(
 
     // Step 2: {pm} build
     const parsedCustomBuild = customBuildCommand ? parseCustomCommand(customBuildCommand) : null;
-    const buildCmd = parsedCustomBuild || getBuildCommand(packageManager);
+    const buildCmd = parsedCustomBuild
+      ? { command: parsedCustomBuild.command, args: parsedCustomBuild.args }
+      : getBuildCommand(packageManager);
     task.status = 'building';
     io.to(socketId).emit('build:status', { buildId, status: 'building', packageManager, projectName });
     if (parsedCustomBuild) {
@@ -433,7 +534,17 @@ export async function runBuild(
     }
     onOutput('stdout', `[auto-dist] 开始执行 ${buildCmd.command} ${buildCmd.args.join(' ')}...\n`);
 
-    const buildSpawn = spawnCommand(buildCmd.command, buildCmd.args, buildDir, onOutput, nodeEnv);
+    const buildEnv = {
+      ...nodeEnv,
+      ...parsedCustomBuild?.env,
+    };
+    const buildSpawn = spawnCommand(
+      buildCmd.command,
+      buildCmd.args,
+      buildDir,
+      onOutput,
+      Object.keys(buildEnv).length > 0 ? buildEnv : undefined,
+    );
     task.process = buildSpawn.child;
     const buildResult = await buildSpawn.exitPromise;
 
@@ -498,6 +609,35 @@ export async function runBuild(
       task.buildMode = 'docker';
       task.status = 'docker-building';
 
+      // 安装阶段可能把非法 pnpm-workspace.yaml 改名为 .bak；Docker COPY 仍需要原文件名
+      const workspaceBak = join(buildDir, 'pnpm-workspace.yaml.auto-dist.bak');
+      try {
+        await access(workspaceBak);
+        await rename(workspaceBak, join(buildDir, 'pnpm-workspace.yaml'));
+        onOutput('stdout', `[auto-dist] 已恢复 pnpm-workspace.yaml 供 Docker 构建使用\n`);
+      } catch {
+        // 无 bak，无需处理
+      }
+
+      const dockerignorePath = join(buildDir, '.dockerignore');
+      let dockerignoreExisted = true;
+      let dockerignore = '';
+      try {
+        dockerignore = await readFile(dockerignorePath, 'utf-8');
+      } catch {
+        dockerignoreExisted = false;
+        dockerignore = 'node_modules\n.git\n*.bak\n';
+      }
+      const dockerignoreLines = dockerignore.split(/\r?\n/);
+      const kept = dockerignoreLines.filter((line) => {
+        const t = line.trim();
+        return t !== 'dist' && t !== '/dist' && t !== './dist' && t !== 'dist/';
+      });
+      if (!dockerignoreExisted || kept.length !== dockerignoreLines.length) {
+        await writeFile(dockerignorePath, `${kept.join('\n').replace(/\n*$/, '')}\n`);
+        onOutput('stdout', `[auto-dist] 已更新 .dockerignore（保留 dist 供镜像 COPY）\n`);
+      }
+
       // 检测项目目录是否自带 Dockerfile（仅在用户未指定 customDockerfile 时）
       const projectDockerfilePath = join(buildDir, 'Dockerfile');
       let useProjectDockerfile = false;
@@ -523,7 +663,9 @@ export async function runBuild(
 
       if (!useProjectDockerfile) {
         // 现有逻辑：从模板写入 Dockerfile
-        const templateName = dockerOptions.dockerfileTemplate || 'node';
+        const templateName = dockerOptions.customDockerfile
+          ? 'custom'
+          : (dockerOptions.dockerfileTemplate || 'node');
         onOutput('stdout', `[auto-dist] 写入 Dockerfile (模板: ${templateName})...\n`);
         await writeDockerfile(buildDir, templateName, dockerOptions.customDockerfile);
       }
@@ -549,13 +691,17 @@ export async function runBuild(
       }
 
       // Docker Build
-      const imageName = dockerOptions.registry?.imageName || 'auto-build-app';
-      const imageTag = dockerOptions.registry?.tag || 'latest';
+      const parsedImage = parseImageName(dockerOptions.registry?.imageName, dockerOptions.registry?.tag);
+      const imageName = parsedImage.imageName;
+      const imageTag = parsedImage.tag;
       task.dockerImage = imageName;
       task.dockerTag = imageTag;
 
-      onOutput('stdout', `[auto-dist] 开始 Docker 构建: ${imageName}:${imageTag}\n`);
-      const dockerResult = await dockerBuild(buildDir, imageName, imageTag, undefined, onOutput);
+      const dockerDefaults = getDockerBuildSettings();
+      const platform = (dockerOptions.platform ?? dockerDefaults.platform)?.trim();
+      const gzipImage = dockerOptions.gzipImage ?? dockerDefaults.gzipImage !== false;
+      onOutput('stdout', `[auto-dist] 开始 Docker 构建: ${imageName}:${imageTag}${platform ? ` (${platform})` : ''}\n`);
+      const dockerResult = await dockerBuild(buildDir, imageName, imageTag, undefined, onOutput, platform);
 
       if (dockerResult.code !== 0) {
         task.status = 'failed';
@@ -566,6 +712,11 @@ export async function runBuild(
         return { buildId, packageManager };
       }
       onOutput('stdout', `[auto-dist] Docker 构建完成: ${imageName}:${imageTag}\n`);
+      await writeImageMeta(buildId, {
+        image: imageName,
+        tag: imageTag,
+        gzipImage,
+      });
     }
 
     // 构建完成
@@ -850,6 +1001,51 @@ export function cancelBuild(buildId: string): boolean {
 export function getZipPath(buildId: string): string | undefined {
   const task = buildTasks.get(buildId);
   return task?.zipPath;
+}
+
+export interface DockerImageMeta {
+  image: string;
+  tag: string;
+  gzipImage?: boolean;
+}
+
+function artifactsDir(): string {
+  return join(homedir(), '.auto-build', 'artifacts');
+}
+
+function imageMetaPath(buildId: string): string {
+  return join(artifactsDir(), `image-${buildId}.json`);
+}
+
+function parseImageName(imageName?: string, tag?: string): { imageName: string; tag: string } {
+  const n = (imageName || '').trim();
+  const t = (tag || '').trim();
+  if (t) return { imageName: n || 'auto-build-app', tag: t };
+  const idx = n.lastIndexOf(':');
+  if (idx > 0 && !n.slice(idx + 1).includes('/')) {
+    return { imageName: n.slice(0, idx) || 'auto-build-app', tag: n.slice(idx + 1) };
+  }
+  return { imageName: n || 'auto-build-app', tag: 'latest' };
+}
+
+async function writeImageMeta(buildId: string, meta: DockerImageMeta): Promise<void> {
+  await mkdir(artifactsDir(), { recursive: true });
+  await writeFile(imageMetaPath(buildId), JSON.stringify(meta));
+}
+
+export async function getDockerImageMeta(buildId: string): Promise<DockerImageMeta | null> {
+  const task = buildTasks.get(buildId);
+  if (task?.dockerImage && task.dockerTag) {
+    return { image: task.dockerImage, tag: task.dockerTag };
+  }
+  try {
+    const raw = await readFile(imageMetaPath(buildId), 'utf-8');
+    const parsed = JSON.parse(raw) as DockerImageMeta;
+    if (parsed?.image && parsed?.tag) return parsed;
+  } catch {
+    // 无元数据
+  }
+  return null;
 }
 
 /**
